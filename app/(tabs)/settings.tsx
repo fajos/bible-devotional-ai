@@ -1,4 +1,4 @@
-// app/(tabs)/settings.js
+// app/(tabs)/settings.tsx
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
@@ -7,25 +7,21 @@ import {
     Alert,
     ScrollView,
     StyleSheet,
-    Switch,
     Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
-import { clearAllFileSystemData, clearCache, formatSize, getCacheSize } from '../../services/store';
+import { clearAllFileSystemData, clearCache, clearHighlights, formatSize, getCacheSize } from '../../services/store';
 
 export default function SettingsScreen() {
-  const [notifications, setNotifications] = useState(true);
-  const [autoSave, setAutoSave] = useState(true);
-  const [defaultVersion, setDefaultVersion] = useState('NKJV');
   const [loading, setLoading] = useState(true);
   const [clearingCache, setClearingCache] = useState(false);
   const [cacheSize, setCacheSize] = useState('0 B');
 
   useEffect(() => {
-    loadSettings();
     updateCacheSize();
+    setLoading(false);
   }, []);
 
   const updateCacheSize = async () => {
@@ -33,55 +29,10 @@ export default function SettingsScreen() {
     setCacheSize(formatSize(size));
   };
 
-  const loadSettings = async () => {
-    try {
-      const savedSettings = await AsyncStorage.getItem('appSettings');
-      if (savedSettings) {
-        const settings = JSON.parse(savedSettings);
-        setNotifications(settings.notifications ?? true);
-        setAutoSave(settings.autoSave ?? true);
-        setDefaultVersion(settings.defaultVersion ?? 'NKJV');
-      }
-    } catch (error) {
-      console.error('Error loading settings:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveSettings = async (updates) => {
-    try {
-      const currentSettings = {
-        notifications,
-        autoSave,
-        defaultVersion,
-        ...updates
-      };
-      await AsyncStorage.setItem('appSettings', JSON.stringify(currentSettings));
-    } catch (error) {
-      console.error('Error saving settings:', error);
-    }
-  };
-
-  const toggleNotifications = (value) => {
-    setNotifications(value);
-    saveSettings({ notifications: value });
-  };
-
-  const toggleAutoSave = (value) => {
-    setAutoSave(value);
-    saveSettings({ autoSave: value });
-  };
-
-  const updateVersion = (version) => {
-    setDefaultVersion(version);
-    saveSettings({ defaultVersion: version });
-  };
-
   const clearAllData = () => {
     Alert.alert(
       'Clear All Data',
-      'This will delete all saved devotionals, favorites, and cached data. This cannot be undone.',
+      'This will delete all saved devotionals, favorites, highlights, and cached data. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -90,16 +41,12 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               setClearingCache(true);
-              const settings = JSON.stringify({ notifications, autoSave, defaultVersion });
-
               // Clear FileSystem data
               await clearAllFileSystemData();
-
               // Clear AsyncStorage
               await AsyncStorage.clear();
 
-              // Restore settings after clear
-              await AsyncStorage.setItem('appSettings', settings);
+              await updateCacheSize();
               Alert.alert('Success', 'All data has been cleared');
             } catch (error) {
               Alert.alert('Error', 'Failed to clear data');
@@ -138,66 +85,35 @@ export default function SettingsScreen() {
     );
   };
 
+  const handleClearHighlights = () => {
+    Alert.alert(
+      'Clear All Highlights',
+      'This will permanently delete all verse highlights across all Bible versions. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setClearingCache(true);
+              await clearHighlights();
+              Alert.alert('Success', 'All highlights have been cleared');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear highlights');
+            } finally {
+              setClearingCache(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading) return null;
 
   return (
     <ScrollView style={styles.container}>
-      {/* Preferences Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>PREFERENCES</Text>
-        
-        <View style={styles.settingItem}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Daily Notifications</Text>
-            <Text style={styles.settingDescription}>Receive daily devotional reminders</Text>
-          </View>
-          <Switch
-            value={notifications}
-            onValueChange={toggleNotifications}
-            trackColor={{ false: COLORS.grayLight, true: COLORS.gold }}
-            thumbColor={notifications ? COLORS.primary : COLORS.white}
-          />
-        </View>
-
-        <View style={styles.settingItem}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Auto-Save Studies</Text>
-            <Text style={styles.settingDescription}>Automatically save generated studies</Text>
-          </View>
-          <Switch
-            value={autoSave}
-            onValueChange={toggleAutoSave}
-            trackColor={{ false: COLORS.grayLight, true: COLORS.gold }}
-            thumbColor={autoSave ? COLORS.primary : COLORS.white}
-          />
-        </View>
-
-        <View style={styles.settingItem}>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingLabel}>Default Bible Version</Text>
-            <Text style={styles.settingDescription}>Version used for verse display</Text>
-          </View>
-          <Text style={styles.settingValue}>{defaultVersion}</Text>
-        </View>
-      </View>
-
-      {/* Bible Versions Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>BIBLE VERSIONS</Text>
-        {['NKJV', 'MSG', 'AMP', 'KJV', 'NIV', 'ESV', 'NLT'].map((version) => (
-          <TouchableOpacity
-            key={version}
-            style={styles.versionItem}
-            onPress={() => updateVersion(version)}
-          >
-            <Text style={styles.versionName}>{version}</Text>
-            {defaultVersion === version && (
-              <Ionicons name="checkmark-circle" size={24} color={COLORS.gold} />
-            )}
-          </TouchableOpacity>
-        ))}
-      </View>
-
       {/* Data Management */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>DATA MANAGEMENT</Text>
@@ -216,6 +132,18 @@ export default function SettingsScreen() {
           ) : (
             <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
           )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={handleClearHighlights}
+          disabled={clearingCache}
+        >
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Clear All Highlights</Text>
+            <Text style={styles.settingDescription}>Remove all verse color markings</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={COLORS.gray} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -292,23 +220,6 @@ const styles = StyleSheet.create({
     fontSize: FONTS.ui.size.tiny,
     color: COLORS.gray,
     marginTop: 2,
-  },
-  settingValue: {
-    fontSize: FONTS.ui.size.medium,
-    color: COLORS.gold,
-    fontWeight: '600',
-  },
-  versionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.offWhite,
-  },
-  versionName: {
-    fontSize: FONTS.ui.size.medium,
-    color: COLORS.primary,
   },
   dangerButton: {
     flexDirection: 'row',

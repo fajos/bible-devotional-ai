@@ -7,6 +7,7 @@ let currentDevotionalData = null;
 
 const FAVORITE_BIBLES_KEY = 'favorite_bibles';
 const SAVED_DEVOTIONALS_FILE = 'saved_devotionals.json';
+const HIGHLIGHTS_FILE = 'highlights.json';
 
 /**
  * Use the new Expo 54 API.
@@ -105,6 +106,75 @@ export const toggleSaveDevotional = async (devotional) => {
   return !isSaved;
 };
 
+// --- Highlight Management ---
+
+export const getHighlights = async () => {
+  try {
+    const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
+    if (file.exists) {
+      return JSON.parse(await file.text());
+    }
+    return {};
+  } catch (e) {
+    return {};
+  }
+};
+
+export const saveHighlights = async (highlights) => {
+  try {
+    const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
+    await file.write(JSON.stringify(highlights));
+  } catch (e) {
+    console.error('Error saving highlights:', e);
+  }
+};
+
+export const toggleHighlight = async (bibleId, verseId, color = null) => {
+  const highlights = await getHighlights();
+  // Use verseId alone for cross-translation support (e.g., "JHN.3.16")
+  const key = verseId;
+  const updatedHighlights = { ...highlights };
+
+  if ((!color || color === 'transparent') && updatedHighlights[key]) {
+    delete updatedHighlights[key];
+  } else if (color && color !== 'transparent') {
+    updatedHighlights[key] = {
+      bibleId, // Original bibleId where highlight was created
+      verseId,
+      color,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  await saveHighlights(updatedHighlights);
+  return updatedHighlights;
+};
+
+export const applyBulkHighlights = async (bibleId, verseIds, color = null) => {
+  const highlights = await getHighlights();
+  const now = new Date().toISOString();
+  // Create a fresh copy to ensure React detects the state change
+  const updatedHighlights = { ...highlights };
+  const isRemoving = !color || color === 'transparent';
+
+  verseIds.forEach(verseId => {
+    const key = verseId; // Cross-translation support
+    if (isRemoving) {
+      delete updatedHighlights[key];
+    } else {
+      updatedHighlights[key] = {
+        bibleId,
+        verseId,
+        color,
+        updatedAt: now,
+      };
+    }
+  });
+
+  await saveHighlights(updatedHighlights);
+  return updatedHighlights;
+};
+
 // --- Cache Management ---
 
 export const getCachedData = async (key) => {
@@ -186,9 +256,21 @@ export const clearCache = async () => {
   }
 };
 
+export const clearHighlights = async () => {
+  try {
+    const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
+    if (file.exists) {
+      await file.delete();
+    }
+  } catch (e) {
+    console.error('Error clearing highlights:', e);
+    throw e;
+  }
+};
+
 export const clearAllFileSystemData = async () => {
   try {
-    const filesToClear = [SAVED_DEVOTIONALS_FILE, 'favorites.json'];
+    const filesToClear = [SAVED_DEVOTIONALS_FILE, 'favorites.json', HIGHLIGHTS_FILE, 'last_read.json'];
     for (const fileName of filesToClear) {
       const file = new File(BASE_DIR, fileName);
       if (file.exists) {
@@ -202,6 +284,28 @@ export const clearAllFileSystemData = async () => {
   }
 };
 
+// --- Last Read State ---
+export const setLastReadState = async (state) => {
+  try {
+    const file = new File(BASE_DIR, 'last_read.json');
+    await file.write(JSON.stringify(state));
+  } catch (e) {
+    console.error('Error saving last read state:', e);
+  }
+};
+
+export const getLastReadState = async () => {
+  try {
+    const file = new File(BASE_DIR, 'last_read.json');
+    if (file.exists) {
+      return JSON.parse(await file.text());
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
 export default {
   storeDevotional,
   getStoredDevotional,
@@ -211,10 +315,17 @@ export default {
   getSavedDevotionals,
   saveLibrary,
   toggleSaveDevotional,
+  getHighlights,
+  saveHighlights,
+  toggleHighlight,
+  applyBulkHighlights,
   getCachedData,
   setCachedData,
   getCacheSize,
   formatSize,
   clearCache,
   clearAllFileSystemData,
+  clearHighlights,
+  setLastReadState,
+  getLastReadState,
 };

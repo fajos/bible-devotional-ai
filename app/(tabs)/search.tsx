@@ -17,7 +17,7 @@ import {
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
 import openaiService from '../../services/openai';
-import { storeDevotional } from '../../services/store';
+import * as store from '../../services/store';
 
 export default function SearchScreen() {
   const { q } = useLocalSearchParams();
@@ -304,7 +304,7 @@ const fetchVerseTexts = async (study) => {
       study = await fetchVerseTexts(study);
       
       // Step 5: Save to storage and navigate
-      storeDevotional(study);
+      store.storeDevotional(study);
 setLoading(false);
 router.push(`/devotional/${study.id}`);
       

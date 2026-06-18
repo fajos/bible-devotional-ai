@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -13,24 +13,66 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import bibleApi from '../../services/bibleApi';
+import store from '../../services/store';
+
+const HIGHLIGHT_COLORS = [
+  { id: 'none', color: 'transparent', label: 'Clear' },
+  { id: 'yellow', color: '#FFF176', label: 'Yellow' },
+  { id: 'green', color: '#A5D6A7', label: 'Green' },
+  { id: 'blue', color: '#90CAF9', label: 'Blue' },
+  { id: 'pink', color: '#F48FB1', label: 'Pink' },
+  { id: 'purple', color: '#E1BEE7', label: 'Purple' },
+  { id: 'orange', color: '#FFCC80', label: 'Orange' },
+  { id: 'teal', color: '#B2DFDB', label: 'Teal' },
+];
+
+interface BibleInfo {
+  id: string;
+  name: string;
+  abbreviation?: string;
+}
+
+interface Book {
+  id: string;
+  name: string;
+}
+
+interface Chapter {
+  id: string;
+  number: string;
+}
+
+interface Verse {
+  id: string;
+  number: string;
+  text: string;
+}
+
+interface Highlight {
+  color: string;
+}
 
 export default function BibleReaderScreen() {
-  const { bibleId } = useLocalSearchParams();
+  const { bibleId } = useLocalSearchParams<{ bibleId: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
-  const [bible, setBible] = useState(null);
-  const [allBibles, setAllBibles] = useState([]);
-  const [books, setBooks] = useState([]);
-  const [chapters, setChapters] = useState([]);
-  const [chapterContent, setChapterContent] = useState('');
+  const [bible, setBible] = useState<BibleInfo | null>(null);
+  const [allBibles, setAllBibles] = useState<BibleInfo[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [verses, setVerses] = useState<Verse[]>([]);
+  const [highlights, setHighlights] = useState<Record<string, Highlight>>({});
 
-  const [currentBook, setCurrentBook] = useState(null);
-  const [currentChapter, setCurrentChapter] = useState(null);
+  const [currentBook, setCurrentBook] = useState<Book | null>(null);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
 
   const [selectorVisible, setSelectorVisible] = useState(false);
-  const [selectorType, setSelectorType] = useState('book'); // 'book', 'chapter', or 'version'
+  const [selectorType, setSelectorType] = useState<'book' | 'chapter' | 'version'>('book');
+
+  const [selectedVerses, setSelectedVerses] = useState<string[]>([]);
+  const [highlightModalVisible, setHighlightModalVisible] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -42,35 +84,47 @@ export default function BibleReaderScreen() {
       const bibleData = await bibleApi.getBible(bibleId);
       setBible(bibleData);
 
-      // Fetch all bibles for the switcher (optional: filter by language or favorites)
       const biblesList = await bibleApi.getBibles();
       setAllBibles(biblesList);
 
       const booksData = await bibleApi.getBooks(bibleId);
       setBooks(booksData);
 
+      const savedHighlights = await store.getHighlights();
+      setHighlights(savedHighlights);
+
       if (booksData.length > 0) {
-        // If we're already reading something, try to stay at that book/chapter
+        // Try to load last read state
+        const lastRead = await store.getLastReadState();
+
         let bookToSelect = currentBook
           ? booksData.find(b => b.name === currentBook.name || b.id === currentBook.id)
           : null;
 
+        // If no book in memory, try to load from saved state
+        if (!bookToSelect && lastRead) {
+          bookToSelect = booksData.find(b => b.id === lastRead.bookId);
+        }
+
+        // Fallback to Genesis
         if (!bookToSelect) {
            bookToSelect = booksData.find(b => b.name === 'Genesis' || b.id === 'GEN') || booksData[0];
         }
 
-        // We need to fetch chapters for this new bible/book combo
         const chaptersData = await bibleApi.getChapters(bibleId, bookToSelect.id);
         setChapters(chaptersData);
         setCurrentBook(bookToSelect);
 
-        let chapterToSelect = currentChapter
-          ? chaptersData.find(c => c.number === currentChapter.number)
-          : chaptersData[0];
+        let chapterToSelect = null;
+        if (currentChapter) {
+          chapterToSelect = chaptersData.find(c => c.number === currentChapter.number);
+        } else if (lastRead && lastRead.bookId === bookToSelect.id) {
+          chapterToSelect = chaptersData.find(c => c.id === lastRead.chapterId);
+        }
 
         if (!chapterToSelect) chapterToSelect = chaptersData[0];
 
-        await selectChapter(chapterToSelect, bibleId);
+        await selectChapter(chapterToSelect, bibleId, bookToSelect.id);
       }
     } catch (error) {
       console.error('Error loading initial data:', error);
@@ -79,58 +133,85 @@ export default function BibleReaderScreen() {
     }
   };
 
-  const selectBible = (newBibleId) => {
+  const selectBible = (newBibleId: string) => {
     setSelectorVisible(false);
     router.setParams({ bibleId: newBibleId });
   };
 
-  const selectBook = async (book, targetChapterIndex = 0) => {
+  const selectBook = async (book: Book, targetChapterIndex = 0) => {
     setCurrentBook(book);
     setSelectorType('chapter');
     const chaptersData = await bibleApi.getChapters(bibleId, book.id);
     setChapters(chaptersData);
 
     if (chaptersData.length > 0) {
-      // If targetChapterIndex is -1, it means we want the last chapter (for "previous" from next book)
       const index = targetChapterIndex === -1 ? chaptersData.length - 1 : targetChapterIndex;
-      await selectChapter(chaptersData[index]);
+      await selectChapter(chaptersData[index], bibleId, book.id);
     }
   };
 
-  const selectChapter = async (chapter, forcedBibleId = null) => {
+  const selectChapter = async (chapter: Chapter, forcedBibleId?: string, forcedBookId?: string) => {
     setLoading(true);
     const activeBibleId = forcedBibleId || bibleId;
     setCurrentChapter(chapter);
     setSelectorVisible(false);
+    setSelectedVerses([]); // Clear selection when changing chapter
+
+    // Save last read state
+    const bookId = forcedBookId || currentBook?.id;
+    if (bookId) {
+      store.setLastReadState({
+        bibleId: activeBibleId,
+        bookId: bookId,
+        chapterId: chapter.id,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     try {
-      // Use the chapter content endpoint
-      const data = await bibleApi.getChapter(activeBibleId, chapter.id);
-      if (data && data.content) {
-        setChapterContent(bibleApi.stripHtml(data.content));
-      } else {
-        // Fallback
-        const passage = await bibleApi.getFormattedVerse(activeBibleId, chapter.reference, bible?.name);
-        setChapterContent(passage?.content || 'Text not available.');
-      }
+      const versesData = await bibleApi.getChapterVersesParsed(activeBibleId, chapter.id);
+      setVerses(versesData);
     } catch (error) {
       console.error('Error loading chapter content:', error);
-      setChapterContent('Error loading text.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleVersePress = (verse: Verse) => {
+    const verseId = verse.id;
+    setSelectedVerses(current =>
+      current.includes(verseId)
+        ? current.filter(id => id !== verseId)
+        : [...current, verseId]
+    );
+  };
+
+  const applyHighlight = async (color: string | null) => {
+    if (selectedVerses.length === 0) return;
+
+    const newHighlights = await store.applyBulkHighlights(
+      bibleId,
+      selectedVerses,
+      color === 'transparent' ? null : color
+    );
+
+    setHighlights(newHighlights);
+    setHighlightModalVisible(false);
+    setSelectedVerses([]);
+  };
+
+  const closeHighlightModal = () => {
+    setHighlightModalVisible(false);
+    // We don't clear selectedVerses here so user can keep selecting
+  };
+
   const goToNextChapter = async () => {
     if (!currentBook || !currentChapter) return;
-
     const currentChapterIndex = chapters.findIndex(c => c.id === currentChapter.id);
-
     if (currentChapterIndex < chapters.length - 1) {
-      // Next chapter in same book
       await selectChapter(chapters[currentChapterIndex + 1]);
     } else {
-      // Next book
       const currentBookIndex = books.findIndex(b => b.id === currentBook.id);
       if (currentBookIndex < books.length - 1) {
         await selectBook(books[currentBookIndex + 1], 0);
@@ -140,14 +221,10 @@ export default function BibleReaderScreen() {
 
   const goToPreviousChapter = async () => {
     if (!currentBook || !currentChapter) return;
-
     const currentChapterIndex = chapters.findIndex(c => c.id === currentChapter.id);
-
     if (currentChapterIndex > 0) {
-      // Previous chapter in same book
       await selectChapter(chapters[currentChapterIndex - 1]);
     } else {
-      // Previous book
       const currentBookIndex = books.findIndex(b => b.id === currentBook.id);
       if (currentBookIndex > 0) {
         await selectBook(books[currentBookIndex - 1], -1);
@@ -155,14 +232,13 @@ export default function BibleReaderScreen() {
     }
   };
 
-  const toggleSelector = (type) => {
+  const toggleSelector = (type: 'book' | 'chapter' | 'version') => {
     setSelectorType(type);
     setSelectorVisible(true);
   };
 
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      {/* This ensures the Expo Router header is hidden even if _layout fails to catch it */}
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Custom Header */}
@@ -212,39 +288,132 @@ export default function BibleReaderScreen() {
             <Text style={styles.chapterHeader}>
               {currentBook?.name} {currentChapter?.number}
             </Text>
-            <Text style={styles.chapterText}>
-              {chapterContent}
-            </Text>
+
+            <View style={styles.versesContainer}>
+              {verses.map((verse) => {
+                const highlight = highlights[verse.id];
+                const isSelected = selectedVerses.includes(verse.id);
+
+                return (
+                  <TouchableOpacity
+                    key={verse.id}
+                    activeOpacity={0.7}
+                    onPress={() => handleVersePress(verse)}
+                    style={styles.verseWrapper}
+                  >
+                    <View style={[
+                      styles.verseTextContainer,
+                      highlight && { backgroundColor: highlight.color }
+                    ]}>
+                      <Text style={styles.verseNumber}>{verse.number}</Text>
+                      <Text style={[
+                        styles.verseText,
+                        isSelected && styles.selectedVerseUnderline
+                      ]}>
+                        {' '}{verse.text}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <View style={styles.footerSpace} />
           </ScrollView>
 
           {/* Navigation Footer */}
           <View style={styles.navFooter}>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={goToPreviousChapter}
-              disabled={books.findIndex(b => b.id === currentBook?.id) === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
-            >
-              <Ionicons name="chevron-back" size={24} color={COLORS.gold} />
-              <Text style={styles.navButtonText}>Prev</Text>
-            </TouchableOpacity>
+            {selectedVerses.length > 0 ? (
+              <View style={styles.bulkHighlightToolbar}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.bulkColorRow}
+                  style={{ flex: 1 }}
+                >
+                  {HIGHLIGHT_COLORS.map((c) => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[
+                        styles.toolbarColorCircle,
+                        { backgroundColor: c.color },
+                        c.id === 'none' && styles.toolbarClearCircle
+                      ]}
+                      onPress={() => applyHighlight(c.color)}
+                    >
+                      {c.id === 'none' && <Ionicons name="trash-outline" size={20} color={COLORS.gray} />}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <TouchableOpacity
+                  style={styles.closeSelectionButton}
+                  onPress={() => setSelectedVerses([])}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={28} color={COLORS.grayLight} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.navButton}
+                  onPress={goToPreviousChapter}
+                  disabled={books.findIndex(b => b.id === currentBook?.id) === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                >
+                  <Ionicons name="chevron-back" size={24} color={COLORS.gold} />
+                  <Text style={styles.navButtonText}>Prev</Text>
+                </TouchableOpacity>
 
-            <View style={styles.navDivider} />
+                <View style={styles.navDivider} />
 
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={goToNextChapter}
-              disabled={
-                books.findIndex(b => b.id === currentBook?.id) === books.length - 1 &&
-                chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1
-              }
-            >
-              <Text style={styles.navButtonText}>Next</Text>
-              <Ionicons name="chevron-forward" size={24} color={COLORS.gold} />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.navButton}
+                  onPress={goToNextChapter}
+                  disabled={
+                    books.findIndex(b => b.id === currentBook?.id) === books.length - 1 &&
+                    chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1
+                  }
+                >
+                  <Text style={styles.navButtonText}>Next</Text>
+                  <Ionicons name="chevron-forward" size={24} color={COLORS.gold} />
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </>
       )}
+
+      {/* Highlight Modal */}
+      <Modal
+        visible={highlightModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeHighlightModal}
+      >
+        <TouchableOpacity
+          style={styles.highlightModalOverlay}
+          activeOpacity={1}
+          onPress={closeHighlightModal}
+        >
+          <View style={styles.highlightPalette}>
+            <Text style={styles.highlightTitle}>Highlight {selectedVerses.length} {selectedVerses.length === 1 ? 'Verse' : 'Verses'}</Text>
+            <View style={styles.colorRow}>
+              {HIGHLIGHT_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[
+                    styles.colorCircle,
+                    { backgroundColor: c.color },
+                    c.id === 'none' && styles.clearCircle
+                  ]}
+                  onPress={() => applyHighlight(c.color)}
+                >
+                  {c.id === 'none' && <Ionicons name="close" size={20} color={COLORS.gray} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Book/Chapter Selector Modal */}
       <Modal
@@ -406,12 +575,41 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     textAlign: 'center',
   },
-  chapterText: {
+  versesContainer: {
+    flexDirection: 'column',
+  },
+  verseWrapper: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  verseNumber: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.goldDark,
+    marginRight: 8,
+    marginTop: 4,
+  },
+  verseTextContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  verseText: {
     fontSize: 19,
-    lineHeight: 32,
+    lineHeight: 30,
     color: COLORS.primary,
     fontFamily: FONTS.scripture?.regular || 'System',
-    textAlign: 'justify',
+    flex: 1,
+  },
+  selectedVerseUnderline: {
+    textDecorationLine: 'underline',
+    textDecorationStyle: 'solid',
+    textDecorationColor: COLORS.gold,
   },
   footerSpace: {
     height: 100,
@@ -444,10 +642,86 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginHorizontal: 8,
   },
+  highlightActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    backgroundColor: COLORS.goldDark,
+    borderRadius: 30,
+  },
+  bulkHighlightToolbar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  bulkColorRow: {
+    alignItems: 'center',
+    paddingRight: 15,
+  },
+  toolbarColorCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    marginHorizontal: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toolbarClearCircle: {
+    backgroundColor: COLORS.offWhite,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeSelectionButton: {
+    paddingLeft: 10,
+  },
   navDivider: {
     width: 1,
     height: '50%',
     backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  // Highlight Modal
+  highlightModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  highlightPalette: {
+    backgroundColor: COLORS.white,
+    padding: 20,
+    borderRadius: 20,
+    width: '80%',
+    alignItems: 'center',
+    ...SHADOWS.large,
+  },
+  highlightTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 20,
+  },
+  colorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  colorCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    ...SHADOWS.small,
+  },
+  clearCircle: {
+    backgroundColor: COLORS.offWhite,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   // Modal Styles
   modalOverlay: {

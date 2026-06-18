@@ -168,18 +168,27 @@ class BibleAPIService {
 
   // Get full chapter content
   async getChapter(bibleId, chapterId) {
+    if (!bibleId || !chapterId) {
+      console.warn('getChapter called with missing IDs:', { bibleId, chapterId });
+      return null;
+    }
+
     try {
       const cacheKey = `content_${bibleId}_${chapterId}`;
       const cached = await store.getCachedData(cacheKey);
       if (cached) return cached;
 
-      // Requesting 'text' format is much cleaner for the reader
+      console.log(`Fetching chapter content: ${bibleId} / ${chapterId}`);
       const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/chapters/${chapterId}?content-type=text&include-notes=false&include-titles=true&include-chapter-numbers=false&include-verse-numbers=true`,
+        `${BASE_URL}/bibles/${bibleId}/chapters/${chapterId}?content-type=html&include-notes=false&include-titles=true&include-chapter-numbers=false&include-verse-numbers=true`,
         { headers: this.headers }
       );
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error(`API Error fetching chapter ${chapterId}:`, response.status, errorData);
+        return null;
+      }
 
       const data = await response.json();
 
@@ -190,6 +199,119 @@ class BibleAPIService {
     } catch (error) {
       console.error('Error fetching chapter:', error);
       return null;
+    }
+  }
+
+  // Get parsed verses for a chapter
+  async getChapterVersesParsed(bibleId, chapterId) {
+    try {
+      if (!bibleId || !chapterId) return [];
+
+      const cacheKey = `parsed_verses_v3_${bibleId}_${chapterId}`;
+      const cached = await store.getCachedData(cacheKey);
+
+      // If we have cached data and it's properly split (more than 1 verse), use it
+      if (cached && Array.isArray(cached) && cached.length > 1) {
+        return cached;
+      }
+
+      const data = await this.getChapter(bibleId, chapterId);
+      if (!data) return [];
+
+      let html = data.content;
+      if (!html) {
+        if (data.text) {
+          const verses = [{
+            id: `${chapterId}.1`,
+            number: '1',
+            text: this.stripHtml(data.text).trim()
+          }];
+          await store.setCachedData(cacheKey, verses);
+          return verses;
+        }
+        return [];
+      }
+
+      const verses = [];
+
+      // Improved Regex: Find anything that looks like a verse marker.
+      // This includes more classes, tag types, and simple <sup> markers used by various Bible versions.
+      // Also handles data-verse-id and other common attributes.
+      const markerRegex = /<(span|sup|b|div)[^>]*?(?:class=["'][^"']*?\b(?:v|verse|verse-num|verse-number|v-num)\b[^"']*?["']|data-sid=["']|data-number=["']|data-verse-id=["']|id=["']verse-\d+["'])[^>]*?>([\s\S]*?)<\/\1>|<sup>\s*(\d+)\s*<\/sup>|\[(\d+)\]/g;
+
+      let match;
+      const markers = [];
+      while ((match = markerRegex.exec(html)) !== null) {
+        const fullTag = match[0];
+        // match[3] is <sup>, match[4] is [n], match[2] is tag content
+        const innerContent = (match[3] || match[4] || match[2] || '').trim();
+
+        // Extract ID: prioritize data-sid, then data-number, then data-verse-id
+        const sidMatch = fullTag.match(/data-sid=["']([^"']+)["']/);
+        const numAttrMatch = fullTag.match(/data-number=["']([^"']+)["']/);
+        const verseIdMatch = fullTag.match(/data-verse-id=["']([^"']+)["']/);
+
+        const verseNum = this.stripHtml(innerContent).trim();
+        const sid = sidMatch ? sidMatch[1] : (numAttrMatch ? `${chapterId}.${numAttrMatch[1]}` : (verseIdMatch ? verseIdMatch[1] : null));
+
+        markers.push({
+          index: match.index,
+          length: fullTag.length,
+          sid: sid,
+          number: verseNum,
+          innerContent: innerContent
+        });
+      }
+
+      if (markers.length > 0) {
+        for (let i = 0; i < markers.length; i++) {
+          const marker = markers[i];
+          const nextMarkerIndex = markers[i + 1] ? markers[i + 1].index : html.length;
+
+          // The verse text might be AFTER the marker or INSIDE the marker
+          const textAfter = this.stripHtml(html.substring(marker.index + marker.length, nextMarkerIndex)).trim();
+          const textInside = this.stripHtml(marker.innerContent).replace(/^\d+/, '').trim();
+
+          let text = textAfter;
+          // Some Bible versions wrap the whole verse text in the span, others put it after.
+          if (!text || text.length < 5) {
+            if (textInside.length > 2) text = textInside;
+          } else if (textInside.length > 10 && !text.includes(textInside.substring(0, 10))) {
+            // Both have text, combine them (rare but handles some complex nesting)
+            text = textInside + " " + textAfter;
+          }
+
+          const rawId = marker.sid || `${chapterId}.${marker.number || i + 1}`;
+          const id = this.getCanonicalId(rawId);
+
+          verses.push({
+            id: id,
+            number: marker.number || (i + 1).toString(),
+            text: text.trim()
+          });
+        }
+      } else {
+        // Fallback: If no markers found, return the whole thing as one "verse"
+        const stripped = this.stripHtml(html).trim();
+        if (stripped) {
+          verses.push({
+            id: `${chapterId}.1`,
+            number: '1',
+            text: stripped
+          });
+        }
+      }
+
+      // Final pass: filter out empty entries
+      const cleanedVerses = verses.filter(v => v.text.length > 0 || v.number.length > 0);
+
+      if (cleanedVerses.length > 0) {
+        await store.setCachedData(cacheKey, cleanedVerses);
+      }
+      return cleanedVerses;
+    } catch (error) {
+      console.error('Error parsing chapter verses:', error);
+      return [];
     }
   }
 
@@ -436,6 +558,16 @@ class BibleAPIService {
     text = text.replace(/\n\s*\n/g, '\n\n');
 
     return text.trim();
+  }
+
+  /**
+   * Helper to get a canonical verse ID (e.g., GEN.1.1) from an API ID
+   * often formatted as "BIBLE_ID:BOOK.CHAP.VERSE"
+   */
+  getCanonicalId(id) {
+    if (!id) return id;
+    const parts = id.split(':');
+    return parts.length > 1 ? parts[1] : parts[0];
   }
 
   // Get verse text using the correct API format

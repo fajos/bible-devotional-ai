@@ -11,7 +11,7 @@ import {
     View,
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
-import store, { storeDevotional } from '../../services/store';
+import * as store from '../../services/store';
 
 export default function LibraryScreen() {
   const [savedItems, setSavedItems] = useState([]);
@@ -65,7 +65,7 @@ export default function LibraryScreen() {
         <TouchableOpacity
             style={styles.itemCard}
             onPress={() => {
-                storeDevotional(item);
+                store.storeDevotional(item);
                 router.push(`/devotional/${item.id}`);
             }}
         >

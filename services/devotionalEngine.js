@@ -92,6 +92,10 @@ class DevotionalEngine {
       } else {
         // Add content to current section
         if (currentSection === 'content') {
+          // Prevent adding the key verse if it's just repeated at the start of content
+          if (sections.content === '' && sections.keyVerse && cleanLine.toLowerCase().includes(sections.keyVerse.toLowerCase().split(':')[0])) {
+             return;
+          }
           sections.content += (sections.content !== '' ? '\n' : '') + cleanLine;
         } else if (currentSection === 'theologicalInsight') {
           sections.theologicalInsight += (sections.theologicalInsight !== '' ? '\n' : '') + cleanLine;
@@ -102,6 +106,14 @@ class DevotionalEngine {
         }
       }
     });
+
+    // Final cleanup: if content starts with the key verse text, remove it
+    if (sections.keyVerse && sections.content) {
+        const verseRef = sections.keyVerse.split('(')[0].trim();
+        if (sections.content.startsWith(verseRef)) {
+            sections.content = sections.content.substring(verseRef.length).replace(/^[:\s-]+/, '').trim();
+        }
+    }
 
     return sections;
   }
@@ -175,6 +187,24 @@ class DevotionalEngine {
         rawAIResponse: aiContent,
         type: 'devotional'
       };
+
+      // Final Check: Strip redundant key verse text from the beginning of content if present
+      if (devotional.keyVerse && devotional.keyVerse.text && devotional.content) {
+        const verseText = devotional.keyVerse.text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+        // Check first 500 chars of content (verse might be at start)
+        const contentNormal = devotional.content.toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+        if (contentNormal.startsWith(verseText)) {
+          // Find where the actual content starts after the verse text
+          // This is a bit fuzzy because of formatting, so we'll look for the first significant
+          // difference or just try to find the verse text in the original content and slice after it
+          const originalVerseText = devotional.keyVerse.text.trim();
+          const firstOccurence = devotional.content.indexOf(originalVerseText);
+          if (firstOccurence !== -1) {
+            devotional.content = devotional.content.substring(firstOccurence + originalVerseText.length).replace(/^[:\s\-"]+/, '').trim();
+          }
+        }
+      }
 
       // Cache the result
       this.cache.set(cacheKey, devotional);

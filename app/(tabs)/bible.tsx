@@ -16,17 +16,37 @@ import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
 import store from '../../services/store';
 
+interface Bible {
+  id: string;
+  name: string;
+  abbreviation?: string;
+  language: {
+    name: string;
+  };
+}
+
+interface FavoriteBible {
+  id: string;
+  name: string;
+  fullName: string;
+}
+
+interface DownloadStatus {
+  progress: number;
+  status: string;
+}
+
 export default function BibleScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [bibles, setBibles] = useState([]);
-  const [filteredBibles, setFilteredBibles] = useState([]);
+  const [bibles, setBibles] = useState<Bible[]>([]);
+  const [filteredBibles, setFilteredBibles] = useState<Bible[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [favorites, setFavorites] = useState([]);
+  const [favorites, setFavorites] = useState<FavoriteBible[]>([]);
   const [quickCompareRef, setQuickCompareRef] = useState('');
-  const [downloadedIds, setDownloadedIds] = useState([]);
-  const [downloadProgress, setDownloadProgress] = useState({}); // { bibleId: { progress, status } }
+  const [downloadedIds, setDownloadedIds] = useState<string[]>([]);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadStatus>>({}); // { bibleId: { progress, status } }
 
   useEffect(() => {
     loadBibles();
@@ -56,7 +76,7 @@ export default function BibleScreen() {
     setLoading(true);
     const data = await bibleAPIService.getBibles();
     // Sort so English bibles are first or filter to major ones
-    const sorted = data.sort((a, b) => {
+    const sorted = data.sort((a: Bible, b: Bible) => {
         if (a.language.name === 'English' && b.language.name !== 'English') return -1;
         if (a.language.name !== 'English' && b.language.name === 'English') return 1;
         return a.name.localeCompare(b.name);
@@ -66,9 +86,9 @@ export default function BibleScreen() {
     setLoading(false);
   };
 
-  const toggleFavorite = async (bible) => {
+  const toggleFavorite = async (bible: Bible) => {
     const isFav = favorites.some(f => f.id === bible.id);
-    let newFavs;
+    let newFavs: FavoriteBible[];
     if (isFav) {
       newFavs = favorites.filter(f => f.id !== bible.id);
     } else {
@@ -86,7 +106,7 @@ export default function BibleScreen() {
     await store.setFavoriteBibles(newFavs);
   };
 
-  const handleSearch = (text) => {
+  const handleSearch = (text: string) => {
     setSearchQuery(text);
     if (!text) {
       setFilteredBibles(bibles);
@@ -100,11 +120,11 @@ export default function BibleScreen() {
     setFilteredBibles(filtered);
   };
 
-  const handleDownload = async (bible) => {
+  const handleDownload = async (bible: Bible) => {
     if (downloadProgress[bible.id]) return;
 
     try {
-      await bibleAPIService.downloadBible(bible.id, (progress, status) => {
+      await bibleAPIService.downloadBible(bible.id, (progress: number, status: string) => {
         setDownloadProgress(prev => ({
           ...prev,
           [bible.id]: { progress, status }
@@ -128,16 +148,26 @@ export default function BibleScreen() {
     }
   };
 
-  const renderBibleItem = ({ item }) => {
+  const renderBibleItem = ({ item }: { item: Bible }) => {
     const isFav = favorites.some(f => f.id === item.id);
     const isDownloaded = downloadedIds.includes(item.id);
     const status = downloadProgress[item.id];
+
+    const navigateToBible = async () => {
+      // Check if we have a last read state for this bible version
+      const lastRead = await store.getLastReadState();
+      if (lastRead && lastRead.bibleId === item.id) {
+        // We could potentially pass the book/chapter info,
+        // but the reader screen already handles loading from storage.
+      }
+      router.push(`/bible-reader/${item.id}`);
+    };
 
     return (
       <View style={[styles.bibleCard, isFav && styles.bibleCardActive]}>
         <TouchableOpacity
           style={styles.bibleInfo}
-          onPress={() => router.push(`/bible-reader/${item.id}`)}
+          onPress={navigateToBible}
         >
           <View style={styles.bibleTitleRow}>
             <Text style={[styles.bibleName, isFav && styles.bibleNameActive]}>{item.name}</Text>

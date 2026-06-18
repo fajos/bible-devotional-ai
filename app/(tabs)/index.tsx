@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import { generateDailyDevotional } from '../../services/devotionalEngine';
-import { storeDevotional } from '../../services/store';
+import * as store from '../../services/store';
 
 const { width } = Dimensions.get('window');
 
@@ -28,14 +28,33 @@ const MOODS = [
   { id: 'lost', label: 'Lost', icon: 'compass-outline', color: '#BD10E0', verse: "Your word is a lamp for my feet, a light on my path.", ref: "Psalm 119:105" },
 ];
 
+const DAILY_VERSES = [
+  { text: "For I know the plans I have for you,” declares the Lord, “plans to prosper you and not to harm you, plans to give you hope and a future.", ref: "Jeremiah 29:11", version: "KJV" },
+  { text: "The Lord is my shepherd; I shall not want.", ref: "Psalm 23:1", version: "KJV" },
+  { text: "I can do all things through Christ which strengtheneth me.", ref: "Philippians 4:13", version: "KJV" },
+  { text: "And we know that all things work together for good to them that love God, to them who are the called according to his purpose.", ref: "Romans 8:28", version: "KJV" },
+  { text: "Trust in the Lord with all thine heart; and lean not unto thine own theological understanding. In all thy ways acknowledge him, and he shall direct thy paths.", ref: "Proverbs 3:5-6", version: "KJV" },
+  { text: "But they that wait upon the Lord shall renew their strength; they shall mount up with wings as eagles; they shall run, and not be weary; and they shall walk, and not faint.", ref: "Isaiah 40:31", version: "KJV" },
+  { text: "Be strong and of a good courage, fear not, nor be afraid of them: for the Lord thy God, he it is that doth go with thee; he will not fail thee, nor forsake thee.", ref: "Deuteronomy 31:6", version: "KJV" }
+];
+
 export default function DailyDevotionalScreen() {
   const [devotional, setDevotional] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('Opening the Word...');
   const [selectedMood, setSelectedMood] = useState(null);
+  const [votd, setVotd] = useState(DAILY_VERSES[0]);
   const fadeAnim = useState(new Animated.Value(0))[0];
   const router = useRouter();
+
+  useEffect(() => {
+    // Determine Verse of the Day based on current date
+    const today = new Date();
+    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+    const index = dayOfYear % DAILY_VERSES.length;
+    setVotd(DAILY_VERSES[index]);
+  }, []);
 
   useEffect(() => {
     if (selectedMood) {
@@ -75,11 +94,10 @@ export default function DailyDevotionalScreen() {
   const loadCachedDevotional = async () => {
     try {
       const today = new Date().toDateString();
-      const cachedData = await AsyncStorage.getItem(`daily_${today}`);
+      const cachedData = await store.getCachedData(`daily_${today}`);
       
       if (cachedData) {
-        const parsed = JSON.parse(cachedData);
-        setDevotional(parsed);
+        setDevotional(cachedData);
         setLoading(false);
         return;
       }
@@ -99,7 +117,7 @@ export default function DailyDevotionalScreen() {
       
       // Cache for today (no version in key since it's one per day)
       const today = new Date().toDateString();
-      await AsyncStorage.setItem(`daily_${today}`, JSON.stringify(result));
+      await store.setCachedData(`daily_${today}`, result);
     } catch (error) {
       console.error('Failed to load devotional:', error);
       alert('Unable to generate devotional. Please check your internet connection and try again.');
@@ -172,7 +190,7 @@ export default function DailyDevotionalScreen() {
           <TouchableOpacity
             style={styles.devotionalCard}
             onPress={() => {
-  storeDevotional(devotional);
+  store.storeDevotional(devotional);
   router.push(`/devotional/${devotional.id}`);
 }}
             activeOpacity={0.95}
@@ -246,18 +264,18 @@ export default function DailyDevotionalScreen() {
         </View>
       )}
 
-      {/* Verse of the Day - Relocated from Explore */}
+      {/* Verse of the Day - Dynamic based on date */}
       <View style={styles.dailyCard}>
         <View style={styles.dailyBadge}>
           <Text style={styles.dailyBadgeText}>VERSE OF THE DAY</Text>
         </View>
         <Text style={styles.dailyVerse}>
-          "For I know the plans I have for you,” declares the Lord, “plans to prosper you and not to harm you, plans to give you hope and a future."
+          "{votd.text}"
         </Text>
-        <Text style={styles.dailyRef}>Jeremiah 29:11 (KJV)</Text>
+        <Text style={styles.dailyRef}>{votd.ref} ({votd.version})</Text>
         <TouchableOpacity
           style={styles.shareButton}
-          onPress={() => handleShareVerse("For I know the plans I have for you,” declares the Lord, “plans to prosper you and not to harm you, plans to give you hope and a future.", "Jeremiah 29:11", "KJV")}
+          onPress={() => handleShareVerse(votd.text, votd.ref, votd.version)}
         >
            <Ionicons name="share-social-outline" size={20} color={COLORS.gold} />
            <Text style={styles.shareText}>Share Grace</Text>
@@ -420,6 +438,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.xs,
+    flexWrap: 'wrap',
   },
   versionTag: {
     fontSize: 10,
@@ -429,6 +448,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginTop: 2,
   },
   verseText: {
     fontSize: FONTS.scripture.size.medium,
