@@ -80,7 +80,9 @@ class OpenAIService {
     - Explains the original linguistic or cultural context.
     - Connects the theme to the overarching biblical narrative.
     - Discusses the "Scarlet Thread" - how this points to or is fulfilled in Jesus Christ.
-    - Provides a bridge between Old Testament shadows and New Testament reality.]
+    - Provides a bridge between Old Testament shadows and New Testament reality.
+
+    IMPORTANT: Start immediately with your analysis. DO NOT repeat the key verse text or the reference at the beginning of this section.]
 
     CROSS_REFERENCES:
     - [OT Reference]: [Detailed explanation of how this Old Testament passage relates to the theme]

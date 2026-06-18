@@ -109,10 +109,17 @@ class DevotionalEngine {
 
     // Final cleanup: if content starts with the key verse text, remove it
     if (sections.keyVerse && sections.content) {
-        const verseRef = sections.keyVerse.split('(')[0].trim();
-        if (sections.content.startsWith(verseRef)) {
-            sections.content = sections.content.substring(verseRef.length).replace(/^[:\s-]+/, '').trim();
+      const verseRef = sections.keyVerse.split('(')[0].trim().toLowerCase();
+      // Remove any leading repetition of the reference or the verse text if it was included in parsing
+      const contentLines = sections.content.split('\n');
+      if (contentLines.length > 0) {
+        const firstLine = contentLines[0].toLowerCase();
+        if (firstLine.includes(verseRef) || (firstLine.length < 100 && (firstLine.includes('verse') || firstLine.includes(':')))) {
+          // It's likely just repeating the reference/verse header
+          contentLines.shift();
+          sections.content = contentLines.join('\n').trim();
         }
+      }
     }
 
     return sections;
@@ -188,21 +195,53 @@ class DevotionalEngine {
         type: 'devotional'
       };
 
-      // Final Check: Strip redundant key verse text from the beginning of content if present
-      if (devotional.keyVerse && devotional.keyVerse.text && devotional.content) {
-        const verseText = devotional.keyVerse.text.toLowerCase().replace(/[^\w\s]/g, '').trim();
-        // Check first 500 chars of content (verse might be at start)
-        const contentNormal = devotional.content.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      // Final Check: Strip redundant key verse text or reference from the beginning of content
+      if (devotional.keyVerse && devotional.content) {
+        const verseRef = devotional.keyVerse.reference.toLowerCase().replace(/[^\w\s]/g, '');
+        const verseText = (devotional.keyVerse.text || '').toLowerCase().replace(/[^\w\s]/g, '').trim();
 
-        if (contentNormal.startsWith(verseText)) {
-          // Find where the actual content starts after the verse text
-          // This is a bit fuzzy because of formatting, so we'll look for the first significant
-          // difference or just try to find the verse text in the original content and slice after it
-          const originalVerseText = devotional.keyVerse.text.trim();
-          const firstOccurence = devotional.content.indexOf(originalVerseText);
-          if (firstOccurence !== -1) {
-            devotional.content = devotional.content.substring(firstOccurence + originalVerseText.length).replace(/^[:\s\-"]+/, '').trim();
+        // Split content into paragraphs/lines
+        let contentLines = devotional.content.split('\n');
+        let linesRemoved = false;
+
+        // Check the first 2 lines for redundancy
+        for (let i = 0; i < Math.min(2, contentLines.length); i++) {
+          const lineNormal = contentLines[0].toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+          // If the line is just the verse reference, the verse text, or a "Key Verse" header
+          if (
+            (verseRef && lineNormal.includes(verseRef)) ||
+            (verseText && lineNormal.includes(verseText.substring(0, 50))) ||
+            lineNormal === 'keyverse' ||
+            lineNormal === 'scripture' ||
+            (lineNormal.length < verseRef.length + 5 && lineNormal.includes(verseRef.split(' ')[0]))
+          ) {
+            contentLines.shift();
+            linesRemoved = true;
+            // Continue checking next line after shifting
+            i--;
+            if (contentLines.length === 0) break;
+          } else {
+            break; // Stop if the first line doesn't match redundancy patterns
           }
+        }
+
+        if (linesRemoved) {
+          devotional.content = contentLines.join('\n').trim();
+        }
+
+        // One final fuzzy check for the whole verse text if it's still there
+        if (verseText && verseText.length > 10) {
+            const contentNormal = devotional.content.toLowerCase().replace(/[^\w\s]/g, '');
+            if (contentNormal.startsWith(verseText)) {
+                // Find approximate match in original text to preserve formatting
+                const originalVerseStart = devotional.content.toLowerCase().indexOf(devotional.keyVerse.text.toLowerCase().substring(0, 20));
+                if (originalVerseStart !== -1) {
+                    // Try to find the end of the verse in the content
+                    const verseEnd = originalVerseStart + devotional.keyVerse.text.length;
+                    devotional.content = devotional.content.substring(verseEnd).replace(/^[:\s\-"]+/, '').trim();
+                }
+            }
         }
       }
 
