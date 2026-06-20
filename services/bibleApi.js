@@ -4,84 +4,59 @@ import store from './store';
 
 const BASE_URL = API_CONFIG.BIBLE_API.baseUrl;
 
+const STANDARD_BIBLE_CHAPTERS = {
+  'Genesis': 50, 'Exodus': 40, 'Leviticus': 27, 'Numbers': 36, 'Deuteronomy': 34,
+  'Joshua': 24, 'Judges': 21, 'Ruth': 4, '1 Samuel': 31, '2 Samuel': 24,
+  '1 Kings': 22, '2 Kings': 25, '1 Chronicles': 29, '2 Chronicles': 36,
+  'Ezra': 10, 'Nehemiah': 13, 'Esther': 10, 'Job': 42, 'Psalms': 150,
+  'Proverbs': 31, 'Ecclesiastes': 12, 'Song of Solomon': 8, 'Isaiah': 66,
+  'Jeremiah': 52, 'Lamentations': 5, 'Ezekiel': 48, 'Daniel': 12,
+  'Hosea': 14, 'Joel': 3, 'Amos': 9, 'Obadiah': 1, 'Jonah': 4,
+  'Micah': 7, 'Nahum': 3, 'Habakkuk': 3, 'Zephaniah': 3, 'Haggai': 2,
+  'Zechariah': 14, 'Malachi': 4, 'Matthew': 28, 'Mark': 16, 'Luke': 24,
+  'John': 21, 'Acts': 28, 'Romans': 16, '1 Corinthians': 16, '2 Corinthians': 13,
+  'Galatians': 6, 'Ephesians': 6, 'Philippians': 4, 'Colossians': 4,
+  '1 Thessalonians': 5, '2 Thessalonians': 3, '1 Timothy': 6, '2 Timothy': 4,
+  'Titus': 3, 'Philemon': 1, 'Hebrews': 13, 'James': 5, '1 Peter': 5,
+  '2 Peter': 3, '1 John': 5, '2 John': 1, '3 John': 1, 'Jude': 1,
+  'Revelation': 22
+};
+
+const BIBLE_BOOKS_BY_ID = {
+  1: 'Genesis', 2: 'Exodus', 3: 'Leviticus', 4: 'Numbers', 5: 'Deuteronomy',
+  6: 'Joshua', 7: 'Judges', 8: 'Ruth', 9: '1 Samuel', 10: '2 Samuel',
+  11: '1 Kings', 12: '2 Kings', 13: '1 Chronicles', 14: '2 Chronicles',
+  15: 'Ezra', 16: 'Nehemiah', 17: 'Esther', 18: 'Job', 19: 'Psalms',
+  20: 'Proverbs', 21: 'Ecclesiastes', 22: 'Song of Solomon', 23: 'Isaiah',
+  24: 'Jeremiah', 25: 'Lamentations', 26: 'Ezekiel', 27: 'Daniel',
+  28: 'Hosea', 29: 'Joel', 30: 'Amos', 31: 'Obadiah', 32: 'Jonah',
+  33: 'Micah', 34: 'Nahum', 35: 'Habakkuk', 36: 'Zephaniah', 37: 'Haggai',
+  38: 'Zechariah', 39: 'Malachi', 40: 'Matthew', 41: 'Mark', 42: 'Luke',
+  43: 'John', 44: 'Acts', 45: 'Romans', 46: '1 Corinthians', 47: '2 Corinthians',
+  48: 'Galatians', 49: 'Ephesians', 50: 'Philippians', 51: 'Colossians',
+  52: '1 Thessalonians', 53: '2 Thessalonians', 54: '1 Timothy', 55: '2 Timothy',
+  56: 'Titus', 57: 'Philemon', 58: 'Hebrews', 59: 'James', 60: '1 Peter',
+  61: '2 Peter', 62: '1 John', 63: '2 John', 64: '3 John', 65: 'Jude',
+  66: 'Revelation'
+};
+
 class BibleAPIService {
   constructor() {
-    this.headers = {
-      'api-key': API_CONFIG.BIBLE_API.apiKey,
-    };
+    // bolls.life is keyless
   }
 
   // Get all available Bibles
   async getBibles() {
     try {
-      const cacheKey = 'bibles_list';
-      let bibles = await store.getCachedData(cacheKey);
+      const versions = API_CONFIG.BIBLE_API.versions;
+      const names = API_CONFIG.BIBLE_API.versionNames;
 
-      // If we have cached data, we still check for duplicates just in case
-      if (bibles && bibles.length > 0) {
-        const uniqueBibles = new Map();
-        let hadDuplicates = false;
-        bibles.forEach(bible => {
-          const name = (bible.name || '').trim().toLowerCase();
-          const lang = (bible.language?.name || '').toLowerCase();
-          const key = `${name}-${lang}`;
-
-          if (!uniqueBibles.has(key)) {
-            uniqueBibles.set(key, bible);
-          } else {
-            hadDuplicates = true;
-            // Prefer the one with an abbreviation or the one that isn't "audio"
-            const existing = uniqueBibles.get(key);
-            if ((!existing.abbreviation && bible.abbreviation) ||
-                (existing.type === 'audio' && bible.type !== 'audio')) {
-              uniqueBibles.set(key, bible);
-            }
-          }
-        });
-
-        if (hadDuplicates) {
-          bibles = Array.from(uniqueBibles.values());
-          await store.setCachedData(cacheKey, bibles);
-        }
-        return bibles;
-      }
-
-      const response = await fetch(`${BASE_URL}/bibles`, {
-        headers: this.headers,
-      });
-
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
-      }
-
-      const data = await response.json();
-      bibles = data.data || [];
-
-      // Filter duplicates by name and language to clean up the list
-      if (bibles.length > 0) {
-        const uniqueBibles = new Map();
-        bibles.forEach(bible => {
-          const name = (bible.name || '').trim().toLowerCase();
-          const lang = (bible.language?.name || '').toLowerCase();
-          const key = `${name}-${lang}`;
-
-          if (!uniqueBibles.has(key)) {
-            uniqueBibles.set(key, bible);
-          } else {
-            const existing = uniqueBibles.get(key);
-            if ((!existing.abbreviation && bible.abbreviation) ||
-                (existing.type === 'audio' && bible.type !== 'audio')) {
-              uniqueBibles.set(key, bible);
-            }
-          }
-        });
-        bibles = Array.from(uniqueBibles.values());
-
-        // Cache the deduplicated list
-        await store.setCachedData(cacheKey, bibles);
-      }
-
-      return bibles;
+      return Object.keys(versions).map(id => ({
+        id: versions[id],
+        name: names[id],
+        abbreviation: id,
+        language: { name: 'English' }
+      }));
     } catch (error) {
       console.error('Error fetching Bibles:', error);
       return [];
@@ -90,44 +65,77 @@ class BibleAPIService {
 
   // Get specific Bible details
   async getBible(bibleId) {
-    try {
-      const cacheKey = `bible_${bibleId}`;
-      const cached = await store.getCachedData(cacheKey);
-      if (cached) return cached;
-
-      const response = await fetch(`${BASE_URL}/bibles/${bibleId}`, {
-        headers: this.headers,
-      });
-
-      if (!response.ok) return null;
-
-      const data = await response.json();
-
-      if (data.data) {
-        await store.setCachedData(cacheKey, data.data);
-      }
-      return data.data;
-    } catch (error) {
-      console.error('Error fetching Bible:', error);
-      return null;
-    }
+    if (!bibleId) return null;
+    const bibles = await this.getBibles();
+    return bibles.find(b => b.id === bibleId) || null;
   }
 
   // Get all books of a Bible
   async getBooks(bibleId) {
+    if (!bibleId) return [];
     try {
-      const cacheKey = `books_${bibleId}`;
+      const cacheKey = `books_bolls_${bibleId}`;
       const cached = await store.getCachedData(cacheKey);
-      if (cached) return cached;
 
-      const response = await fetch(`${BASE_URL}/bibles/${bibleId}/books`, {
-        headers: this.headers,
-      });
+      // Force refresh if cached data is missing chapters for first few books
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        const gen = cached.find(b =>
+          String(b.name).toLowerCase() === 'genesis' ||
+          String(b.shortName).toLowerCase() === 'genesis' ||
+          String(b.id) === '1'
+        );
+        if (gen && gen.chapters > 0) {
+           return cached;
+        }
+        console.log(`Cache for ${bibleId} seems invalid (missing chapters), refreshing...`);
+      }
 
-      if (!response.ok) return [];
+      const response = await fetch(`${BASE_URL}/get-books/${bibleId}/`);
+      if (!response.ok) {
+        if (response.status !== 404) {
+          console.error(`Bolls API fetch books failed for ${bibleId}: ${response.status}`);
+        }
+        return [];
+      }
 
       const data = await response.json();
-      const books = data.data || [];
+      if (!Array.isArray(data)) {
+        console.error(`Bolls API error: get-books for ${bibleId} returned non-array`, data);
+        return [];
+      }
+
+      const books = data.map(b => {
+        // Handle various ID fields. Bolls uses 'pk' or 'bookid' usually.
+        const bookid = b.pk || b.bookid || b.book_id || b.id || b.number;
+        if (bookid === undefined || bookid === null) return null;
+
+        const bidInt = parseInt(bookid);
+        const standardName = !isNaN(bidInt) ? BIBLE_BOOKS_BY_ID[bidInt] : null;
+
+        const rawName = b.name || b.book_name || b.title || '';
+        const normalizedName = this.normalizeBookName(rawName);
+
+        // Prefer standard name for UI to avoid ceremonial prefixes
+        const name = standardName || normalizedName || rawName;
+
+        // Use API chapter count or fallback to standard counts
+        let rawChapters = b.chapters || b.chapters_count || b.chapter_count || b.chaps || 0;
+        let chapters = parseInt(rawChapters);
+
+        if (isNaN(chapters) || chapters <= 0) {
+          chapters = STANDARD_BIBLE_CHAPTERS[normalizedName] || STANDARD_BIBLE_CHAPTERS[standardName] || 0;
+        }
+
+        return {
+          id: String(bookid),
+          name: name,
+          shortName: normalizedName,
+          standardName: standardName,
+          abbreviation: (name || '').substring(0, 3).toUpperCase(),
+          number: bidInt,
+          chapters: chapters
+        };
+      }).filter(Boolean);
 
       if (books.length > 0) {
         await store.setCachedData(cacheKey, books);
@@ -141,25 +149,43 @@ class BibleAPIService {
 
   // Get chapters of a book
   async getChapters(bibleId, bookId) {
+    if (!bibleId || !bookId) return [];
     try {
-      const cacheKey = `chapters_${bibleId}_${bookId}`;
-      const cached = await store.getCachedData(cacheKey);
-      if (cached) return cached;
+      const books = await this.getBooks(bibleId);
+      if (!books || books.length === 0) return [];
 
-      const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/books/${bookId}/chapters`,
-        { headers: this.headers }
+      const search = String(bookId).toLowerCase();
+      // Try exact matches first
+      let book = books.find(b =>
+        String(b.id).toLowerCase() === search ||
+        String(b.name).toLowerCase() === search ||
+        (b.shortName && b.shortName.toLowerCase() === search) ||
+        (b.standardName && b.standardName.toLowerCase() === search)
       );
 
-      if (!response.ok) return [];
-
-      const data = await response.json();
-      const chapters = data.data || [];
-
-      if (chapters.length > 0) {
-        await store.setCachedData(cacheKey, chapters);
+      // Fallback for partial name matches
+      if (!book) {
+        book = books.find(b =>
+          (b.name && String(b.name).toLowerCase().includes(search)) ||
+          (b.standardName && String(b.standardName).toLowerCase().includes(search))
+        );
       }
-      return chapters;
+
+      if (!book) {
+        console.warn(`Book not found: ${bookId} in bible ${bibleId}`);
+        return [];
+      }
+
+      // If we have the chapters count from the book list, use it
+      if (book.chapters && book.chapters > 0) {
+        return Array.from({ length: book.chapters }, (_, i) => ({
+          id: (i + 1).toString(),
+          number: (i + 1).toString()
+        }));
+      }
+
+      // Last resort fallback
+      return [{ id: '1', number: '1' }];
     } catch (error) {
       console.error('Error fetching chapters:', error);
       return [];
@@ -167,35 +193,21 @@ class BibleAPIService {
   }
 
   // Get full chapter content
-  async getChapter(bibleId, chapterId) {
-    if (!bibleId || !chapterId) {
-      console.warn('getChapter called with missing IDs:', { bibleId, chapterId });
-      return null;
-    }
-
+  async getChapter(bibleId, bookId, chapterNumber) {
+    if (!bibleId || !bookId || !chapterNumber) return null;
     try {
-      const cacheKey = `content_${bibleId}_${chapterId}`;
+      const cacheKey = `content_bolls_${bibleId}_${bookId}_${chapterNumber}`;
       const cached = await store.getCachedData(cacheKey);
       if (cached) return cached;
 
-      console.log(`Fetching chapter content: ${bibleId} / ${chapterId}`);
-      const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/chapters/${chapterId}?content-type=html&include-notes=false&include-titles=true&include-chapter-numbers=false&include-verse-numbers=true`,
-        { headers: this.headers }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error(`API Error fetching chapter ${chapterId}:`, response.status, errorData);
-        return null;
-      }
+      const response = await fetch(`${BASE_URL}/get-chapter/${bibleId}/${bookId}/${chapterNumber}/`);
+      if (!response.ok) return null;
 
       const data = await response.json();
-
-      if (data.data) {
-        await store.setCachedData(cacheKey, data.data);
+      if (data && data.length > 0) {
+        await store.setCachedData(cacheKey, data);
       }
-      return data.data;
+      return data;
     } catch (error) {
       console.error('Error fetching chapter:', error);
       return null;
@@ -203,265 +215,200 @@ class BibleAPIService {
   }
 
   // Get parsed verses for a chapter
-  async getChapterVersesParsed(bibleId, chapterId) {
+  async getChapterVersesParsed(bibleId, bookId, chapterNumber) {
     try {
-      if (!bibleId || !chapterId) return [];
+      const data = await this.getChapter(bibleId, bookId, chapterNumber);
+      if (!data || !Array.isArray(data)) return [];
 
-      const cacheKey = `parsed_verses_v3_${bibleId}_${chapterId}`;
-      const cached = await store.getCachedData(cacheKey);
-
-      // If we have cached data and it's properly split (more than 1 verse), use it
-      if (cached && Array.isArray(cached) && cached.length > 1) {
-        return cached;
-      }
-
-      const data = await this.getChapter(bibleId, chapterId);
-      if (!data) return [];
-
-      let html = data.content;
-      if (!html) {
-        if (data.text) {
-          const verses = [{
-            id: `${chapterId}.1`,
-            number: '1',
-            text: this.stripHtml(data.text).trim()
-          }];
-          await store.setCachedData(cacheKey, verses);
-          return verses;
-        }
-        return [];
-      }
-
-      const verses = [];
-
-      // Improved Regex: Find anything that looks like a verse marker.
-      // This includes more classes, tag types, and simple <sup> markers used by various Bible versions.
-      // Also handles data-verse-id and other common attributes.
-      const markerRegex = /<(span|sup|b|div)[^>]*?(?:class=["'][^"']*?\b(?:v|verse|verse-num|verse-number|v-num)\b[^"']*?["']|data-sid=["']|data-number=["']|data-verse-id=["']|id=["']verse-\d+["'])[^>]*?>([\s\S]*?)<\/\1>|<sup>\s*(\d+)\s*<\/sup>|\[(\d+)\]/g;
-
-      let match;
-      const markers = [];
-      while ((match = markerRegex.exec(html)) !== null) {
-        const fullTag = match[0];
-        // match[3] is <sup>, match[4] is [n], match[2] is tag content
-        const innerContent = (match[3] || match[4] || match[2] || '').trim();
-
-        // Extract ID: prioritize data-sid, then data-number, then data-verse-id
-        const sidMatch = fullTag.match(/data-sid=["']([^"']+)["']/);
-        const numAttrMatch = fullTag.match(/data-number=["']([^"']+)["']/);
-        const verseIdMatch = fullTag.match(/data-verse-id=["']([^"']+)["']/);
-
-        const verseNum = this.stripHtml(innerContent).trim();
-        const sid = sidMatch ? sidMatch[1] : (numAttrMatch ? `${chapterId}.${numAttrMatch[1]}` : (verseIdMatch ? verseIdMatch[1] : null));
-
-        markers.push({
-          index: match.index,
-          length: fullTag.length,
-          sid: sid,
-          number: verseNum,
-          innerContent: innerContent
-        });
-      }
-
-      if (markers.length > 0) {
-        for (let i = 0; i < markers.length; i++) {
-          const marker = markers[i];
-          const nextMarkerIndex = markers[i + 1] ? markers[i + 1].index : html.length;
-
-          // The verse text might be AFTER the marker or INSIDE the marker
-          const textAfter = this.stripHtml(html.substring(marker.index + marker.length, nextMarkerIndex)).trim();
-          const textInside = this.stripHtml(marker.innerContent).replace(/^\d+/, '').trim();
-
-          let text = textAfter;
-          // Some Bible versions wrap the whole verse text in the span, others put it after.
-          if (!text || text.length < 5) {
-            if (textInside.length > 2) text = textInside;
-          } else if (textInside.length > 10 && !text.includes(textInside.substring(0, 10))) {
-            // Both have text, combine them (rare but handles some complex nesting)
-            text = textInside + " " + textAfter;
-          }
-
-          const rawId = marker.sid || `${chapterId}.${marker.number || i + 1}`;
-          const id = this.getCanonicalId(rawId);
-
-          verses.push({
-            id: id,
-            number: marker.number || (i + 1).toString(),
-            text: text.trim()
-          });
-        }
-      } else {
-        // Fallback: If no markers found, return the whole thing as one "verse"
-        const stripped = this.stripHtml(html).trim();
-        if (stripped) {
-          verses.push({
-            id: `${chapterId}.1`,
-            number: '1',
-            text: stripped
-          });
-        }
-      }
-
-      // Final pass: filter out empty entries
-      const cleanedVerses = verses.filter(v => v.text.length > 0 || v.number.length > 0);
-
-      if (cleanedVerses.length > 0) {
-        await store.setCachedData(cacheKey, cleanedVerses);
-      }
-      return cleanedVerses;
+      return data.map(v => {
+        if (!v) return null;
+        return {
+          id: `${bibleId}.${bookId}.${chapterNumber}.${v.verse || '0'}`,
+          number: (v.verse || '').toString(),
+          text: this.stripHtml(v.text || '').trim()
+        };
+      }).filter(Boolean);
     } catch (error) {
       console.error('Error parsing chapter verses:', error);
       return [];
     }
   }
 
-  // Pre-cache a Bible's full content (Books, Chapters, and Text)
+  // Offline Download logic
   async downloadBible(bibleId, onProgress) {
     try {
-      // 1. Get and cache books
+      if (onProgress) onProgress(0, 'Initializing...');
+
       const books = await this.getBooks(bibleId);
-      if (onProgress) onProgress(0.05, 'Preparing books...');
-
-      // 2. Map out all chapters first
-      const allChapters = [];
-      for (const book of books) {
-        const chapters = await this.getChapters(bibleId, book.id);
-        chapters.forEach(c => {
-          allChapters.push({ ...c, bookName: book.name });
-        });
+      if (!books || books.length === 0) {
+        throw new Error('Could not fetch books for this Bible.');
       }
 
-      const total = allChapters.length;
-      if (onProgress) onProgress(0.1, `Starting download of ${total} chapters...`);
+      if (onProgress) onProgress(0.05, `Starting download of ${books.length} books...`);
 
-      // 3. Download chapter contents in chunks to avoid overwhelming the API/device
-      for (let i = 0; i < allChapters.length; i++) {
-        const chapter = allChapters[i];
+      let completedChapters = 0;
+      const totalChapters = books.reduce((acc, book) => acc + (book.chapters || 0), 0);
 
-        // This will fetch from API and save to AsyncStorage via our cached getChapter method
-        await this.getChapter(bibleId, chapter.id);
+      for (let i = 0; i < books.length; i++) {
+        const book = books[i];
+        const chapterCount = book.chapters || 0;
 
-        if (onProgress && (i % 10 === 0 || i === total - 1)) {
-          const progress = 0.1 + (0.9 * (i + 1) / total);
-          onProgress(progress, `Downloading ${chapter.bookName} ${chapter.number}...`);
+        for (let ch = 1; ch <= chapterCount; ch++) {
+          // getChapter handles caching internally
+          await this.getChapter(bibleId, book.id, ch);
+          completedChapters++;
+
+          // Report progress every 5 chapters or at the end of a book
+          if (completedChapters % 5 === 0 || ch === chapterCount) {
+            const progress = 0.05 + (completedChapters / totalChapters) * 0.90;
+            if (onProgress) {
+              onProgress(
+                progress,
+                `Downloading ${book.name} (${ch}/${chapterCount})`
+              );
+            }
+          }
         }
-
-        // Small throttle to stay within API rate limits
-        if (i % 5 === 0) {
-          await new Promise(resolve => setTimeout(resolve, 30));
-        }
       }
 
-      // Mark as fully downloaded
-      const downloadedBibles = await store.getCachedData('downloaded_bibles') || [];
-      if (!downloadedBibles.includes(bibleId)) {
-        await store.setCachedData('downloaded_bibles', [...downloadedBibles, bibleId]);
+      // Mark as downloaded in store
+      const downloaded = await store.getCachedData('downloaded_bibles') || [];
+      if (!downloaded.includes(bibleId)) {
+        await store.setCachedData('downloaded_bibles', [...downloaded, bibleId]);
       }
 
+      if (onProgress) onProgress(1, 'Download Complete');
       return true;
     } catch (error) {
-      console.error('Error downloading Bible:', error);
+      console.error(`Error downloading Bible ${bibleId}:`, error);
+      if (onProgress) onProgress(0, `Error: ${error.message}`);
       return false;
     }
   }
 
-  async isBibleDownloaded(bibleId) {
+  // Get verse text using the Bolls API
+  async getFormattedVerse(bibleId, reference) {
     try {
-      const downloadedBibles = await store.getCachedData('downloaded_bibles') || [];
-      return downloadedBibles.includes(bibleId);
-    } catch (e) {
-      return false;
-    }
-  }
+      if (!reference || !bibleId) return null;
 
-  // Get verses from a chapter
-  async getChapterVerses(bibleId, chapterId) {
-    try {
-      const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/chapters/${chapterId}/verses`,
-        { headers: this.headers }
-      );
-      const data = await response.json();
-      return data.data || [];
-    } catch (error) {
-      console.error('Error fetching verses:', error);
-      return [];
-    }
-  }
+      // Clean reference from common AI additions
+      const cleanRef = reference.replace(/\([^)]*\)/g, '').trim();
+      const parsed = this.parseReference(cleanRef);
+      if (!parsed) return null;
 
-  // Get specific verse by ID
-  async getVerse(bibleId, verseId) {
-    try {
-      const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/verses/${verseId}`,
-        { headers: this.headers }
+      const books = await this.getBooks(bibleId);
+      if (!books || books.length === 0) return null;
+
+      const search = parsed.book.toLowerCase().trim();
+
+      let book = books.find(b =>
+        b.name.toLowerCase() === search ||
+        b.shortName.toLowerCase() === search ||
+        String(b.id) === search
       );
-      const data = await response.json();
-      return data.data;
+
+      if (!book) {
+        // Fallback for common variants
+        const variants = {
+          'psalms': 'psalm',
+          'revelations': 'revelation',
+          'songs of solomon': 'song of solomon',
+          'solomon': 'song of solomon'
+        };
+        const normalizedSearch = variants[search] || search;
+        book = books.find(b =>
+          b.name.toLowerCase().includes(normalizedSearch) ||
+          normalizedSearch.includes(b.name.toLowerCase())
+        );
+      }
+
+      if (!book) return null;
+
+      if (parsed.chapter) {
+        if (parsed.startVerse) {
+          if (parsed.endVerse) {
+            // Range
+            const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+            if (!chapter) return null;
+
+            const filtered = chapter.filter(v => v.verse >= parsed.startVerse && v.verse <= parsed.endVerse);
+            const text = filtered.map(v => this.stripHtml(v.text)).join(' ');
+
+            return {
+              reference: reference,
+              content: text,
+              text: text,
+              verses: filtered.map(v => ({ text: this.stripHtml(v.text), number: v.verse })),
+              copyright: 'Bolls.life'
+            };
+          } else {
+            // Single verse
+            const response = await fetch(`${BASE_URL}/get-text/${bibleId}/${book.id}/${parsed.chapter}/${parsed.startVerse}/`);
+            if (!response.ok) {
+              const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+              const v = chapter?.find(v => v.verse === parsed.startVerse);
+              if (!v) return null;
+              return {
+                reference: reference,
+                content: this.stripHtml(v.text),
+                text: this.stripHtml(v.text),
+                verses: [{ text: this.stripHtml(v.text), number: v.verse }],
+                copyright: 'Bolls.life'
+              };
+            }
+            const v = await response.json();
+            return {
+              reference: reference,
+              content: this.stripHtml(v.text),
+              text: this.stripHtml(v.text),
+              verses: [{ text: this.stripHtml(v.text), number: v.verse }],
+              copyright: 'Bolls.life'
+            };
+          }
+        } else {
+          // Whole chapter
+          const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+          if (!chapter) return null;
+          const text = chapter.map(v => this.stripHtml(v.text)).join(' ');
+          return {
+            reference: reference,
+            content: text,
+            text: text,
+            verses: chapter.map(v => ({ text: this.stripHtml(v.text), number: v.verse })),
+            copyright: 'Bolls.life'
+          };
+        }
+      }
+      return null;
     } catch (error) {
-      console.error('Error fetching verse:', error);
+      console.error('Error in getFormattedVerse:', error);
       return null;
     }
   }
 
-  // Search for verses
-  async searchVerses(bibleId, query) {
+  async getMultipleVerses(bibleId, references) {
+    if (!references || !Array.isArray(references)) return [];
     try {
-      const params = new URLSearchParams({
-        query: query,
-        limit: '20',
-      });
-
-      const response = await fetch(
-        `${BASE_URL}/bibles/${bibleId}/search?${params}`,
-        { headers: this.headers }
-      );
-      const data = await response.json();
-
-      if (data.data?.verses) {
-        return data.data.verses;
+      const results = [];
+      for (const ref of references) {
+        if (!ref) continue;
+        const verse = await this.getFormattedVerse(bibleId, ref);
+        if (verse) results.push(verse);
+        else results.push({ reference: ref, text: 'Content unavailable', content: 'Content unavailable' });
       }
-
-      // The search results might be in a different format
-      if (data.data?.passages) {
-        return data.data.passages;
-      }
-
-      return [];
+      return results;
     } catch (error) {
-      console.error('Error searching verses:', error);
+      console.error('Error in getMultipleVerses:', error);
       return [];
     }
   }
 
-  getPublicApiVersion(bibleId, bibleName = '') {
-    const mapping = {
-      'de4e12af7f28f599-01': 'kjv', // KJV
-      '685d1470fe4d5c3b-01': 'asv', // ASV
-      '9874583577d0571f-01': 'web', // WEB
-      '9874583577d0571f-02': 'web', // WEB
-    };
-
-    if (mapping[bibleId]) return mapping[bibleId];
-
-    // Try name matching if provided
-    const name = bibleName.toLowerCase();
-    if (name.includes('world english bible')) return 'web';
-    if (name.includes('king james version') && !name.includes('new')) return 'kjv';
-    if (name.includes('bible in basic english')) return 'bbe';
-    if (name.includes('open english bible')) return 'oeb';
-
-    return null;
-  }
-
-  // Parse a Bible reference like "John 3:16" into components
   parseReference(reference) {
-    // Clean the reference
+    if (!reference) return null;
     const cleanRef = reference.trim();
 
-    // Match patterns like "John 3:16" or "1 Kings 3:16-17"
+    // Pattern: "John 3:16" or "1 John 1:9" or "Genesis 1:1-5"
     const match = cleanRef.match(/^(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?$/);
-
     if (match) {
       return {
         book: match[1].trim(),
@@ -471,7 +418,7 @@ class BibleAPIService {
       };
     }
 
-    // Match "John 3" (chapter only)
+    // Pattern: "Psalm 23"
     const chapterMatch = cleanRef.match(/^(\d?\s*[A-Za-z]+)\s+(\d+)$/);
     if (chapterMatch) {
       return {
@@ -481,244 +428,63 @@ class BibleAPIService {
         endVerse: null,
       };
     }
-
     return null;
   }
 
-  // Find book ID from book name
-  async findBookId(bibleId, bookName) {
-    try {
-      const books = await this.getBooks(bibleId);
-
-      // Try exact match first
-      let book = books.find(b =>
-        b.name.toLowerCase() === bookName.toLowerCase() ||
-        b.abbreviation?.toLowerCase() === bookName.toLowerCase()
-      );
-
-      // Try partial match
-      if (!book) {
-        book = books.find(b =>
-          b.name.toLowerCase().includes(bookName.toLowerCase()) ||
-          bookName.toLowerCase().includes(b.name.toLowerCase())
-        );
-      }
-
-      return book?.id || null;
-    } catch (error) {
-      console.error('Error finding book:', error);
-      return null;
-    }
-  }
-
-  // Find chapter ID
-  async findChapterId(bibleId, bookId, chapterNumber) {
-    try {
-      const chapters = await this.getChapters(bibleId, bookId);
-      const chapter = chapters.find(c =>
-        c.number === chapterNumber.toString() ||
-        c.reference?.endsWith(`${chapterNumber}`)
-      );
-      return chapter?.id || null;
-    } catch (error) {
-      console.error('Error finding chapter:', error);
-      return null;
-    }
-  }
-
-  // Strip HTML tags and decode entities
   stripHtml(html) {
     if (!html) return '';
-
-    let text = html;
-
-    // 1. Replace paragraph and break tags with newlines
-    text = text.replace(/<(p|br|div)[^>]*>/gi, '\n');
-
-    // 2. Remove all other tags
-    text = text.replace(/<[^>]*>/g, '');
-
-    // 3. Decode common HTML entities
-    text = text
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
+    return html
+      .replace(/<S>\d+<\/S>/g, '') // Strip Strong's numbers
+      .replace(/<sup[^>]*>.*?<\/sup>/g, '') // Strip footnotes
+      .replace(/<[^>]*>/g, '') // Strip all other HTML tags
+      .replace(/&nbsp;/g, ' ')
       .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'")
-      .replace(/&rsquo;/g, "'")
-      .replace(/&lsquo;/g, "'")
-      .replace(/&rdquo;/g, '"')
-      .replace(/&ldquo;/g, '"')
-      .replace(/&mdash;/g, '—')
-      .replace(/&ndash;/g, '–')
-      .replace(/&nbsp;/g, ' ');
-
-    // 4. Clean up whitespace: multiple spaces -> single space, multiple newlines -> double newline
-    text = text.replace(/[ \t]+/g, ' ');
-    text = text.replace(/\n\s*\n/g, '\n\n');
-
-    return text.trim();
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
   }
 
-  /**
-   * Helper to get a canonical verse ID (e.g., GEN.1.1) from an API ID
-   * often formatted as "BIBLE_ID:BOOK.CHAP.VERSE"
-   */
-  getCanonicalId(id) {
-    if (!id) return id;
-    const parts = id.split(':');
-    return parts.length > 1 ? parts[1] : parts[0];
-  }
+  normalizeBookName(name) {
+    if (!name) return '';
+    let clean = name;
 
-  // Get verse text using the correct API format
-  async getFormattedVerse(bibleId, reference, bibleName = '') {
-    try {
-      console.log(`Looking up: "${reference}" in Bible ${bibleId} (${bibleName})`);
+    // Ceremonial prefixes in NKJV/KJV
+    const ceremonial = [
+      /^The (?:First|Second|Third|Fourth|Fifth) Book of Moses called /i,
+      /^The (?:First|Second) Book of the Kings/i,
+      /^The (?:First|Second) Book of the Chronicles/i,
+      /^The (?:First|Second|Third) Epistle of /i,
+      /^The (?:General )?Epistle of (?:Paul the Apostle to the |Paul to the |James|Peter|John|Jude)/i,
+      /^The Gospel According to (?:Saint )?/i,
+      /^The (?:Holy )?Revelation of (?:Saint )?John(?: the Divine)?/i,
+      /^The Proverbs/i,
+      /^The Song of Solomon/i,
+      /^The Lamentations of Jeremiah/i,
+      /^The Acts of the Apostles/i,
+      /^The Book of /i,
+      /^The SONG OF /i,
+      /^The /i
+    ];
 
-      // Try Free Public API first for compatible versions to save quota
-      const publicVersion = this.getPublicApiVersion(bibleId, bibleName);
-      if (publicVersion) {
-        try {
-          const response = await fetch(`${API_CONFIG.BIBLE_API.PUBLIC_API.baseUrl}/${encodeURIComponent(reference)}?translation=${publicVersion}`);
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Fetched from Free Public API');
-            return {
-              reference: data.reference,
-              content: data.text.trim(),
-              verses: data.verses.map(v => ({ text: v.text.trim(), reference: `${v.book_name} ${v.chapter}:${v.verse}` })),
-              copyright: 'Public Domain / Free License',
-            };
-          }
-        } catch (e) {
-          console.warn('Public API fallback failed, trying api.bible');
-        }
-      }
+    ceremonial.forEach(regex => {
+      clean = clean.replace(regex, '');
+    });
 
-      // Fallback to api.bible for NKJV, etc.
-      const searchResults = await this.searchVerses(bibleId, reference);
-      // ... rest of existing code ...
+    // Strip "called ..." at the end if it exists (e.g. Genesis)
+    clean = clean.replace(/ Called [A-Z]+$/i, '');
 
-      if (searchResults && searchResults.length > 0) {
-        const firstResult = searchResults[0];
-        console.log('Search result found');
-
-        // Clean the content - prioritize content (HTML) for better stripping of headers
-        let cleanContent = '';
-        if (firstResult.content) {
-          cleanContent = this.stripHtml(firstResult.content);
-        } else if (firstResult.text) {
-          cleanContent = this.stripHtml(firstResult.text);
-        }
-
-        // Also clean any verses in the array
-        const cleanVerses = searchResults.map(v => ({
-          ...v,
-          text: v.content ? this.stripHtml(v.content) : (v.text ? this.stripHtml(v.text) : ''),
-          content: v.content ? this.stripHtml(v.content) : '',
-        }));
-
-        return {
-          reference: firstResult.reference || reference,
-          content: cleanContent,
-          verses: cleanVerses,
-          copyright: firstResult.copyright || '',
-        };
-      }
-
-      // If search doesn't work, try parsing and looking up manually
-      const parsed = this.parseReference(reference);
-
-      if (!parsed) {
-        console.log('Could not parse reference');
-        return null;
-      }
-
-      console.log('Parsed reference:', parsed);
-
-      // Find the book
-      const bookId = await this.findBookId(bibleId, parsed.book);
-      if (!bookId) {
-        console.log('Book not found:', parsed.book);
-        return null;
-      }
-
-      // Find the chapter
-      const chapterId = await this.findChapterId(bibleId, bookId, parsed.chapter);
-      if (!chapterId) {
-        console.log('Chapter not found:', parsed.chapter);
-        return null;
-      }
-
-      // Get verses from this chapter
-      const allVerses = await this.getChapterVerses(bibleId, chapterId);
-
-      if (allVerses && allVerses.length > 0) {
-        // Filter to the specific verse(s) we want
-        let relevantVerses;
-        if (parsed.startVerse && parsed.endVerse) {
-          relevantVerses = allVerses.filter(v => {
-            const verseNum = parseInt(v.reference?.split(':').pop());
-            return verseNum >= parsed.startVerse && verseNum <= parsed.endVerse;
-          });
-        } else if (parsed.startVerse) {
-          relevantVerses = allVerses.filter(v => {
-            const verseNum = parseInt(v.reference?.split(':').pop());
-            return verseNum === parsed.startVerse;
-          });
-        } else {
-          // Return whole chapter
-          relevantVerses = allVerses;
-        }
-
-        if (relevantVerses.length > 0) {
-          const cleanVerses = relevantVerses.map(v => ({
-            ...v,
-            text: v.text ? this.stripHtml(v.text) : '',
-            content: v.content ? this.stripHtml(v.content) : '',
-          }));
-
-          const combinedText = cleanVerses
-            .map(v => v.text || v.content || '')
-            .join(' ');
-
-          return {
-            reference: reference,
-            content: this.stripHtml(combinedText),
-            verses: cleanVerses,
-            copyright: relevantVerses[0]?.copyright || '',
-          };
-        }
-      }
-
-      console.log('No verses found for reference');
-      return null;
-
-    } catch (error) {
-      console.error('Error in getFormattedVerse:', error);
-      return null;
-    }
-  }
-
-  // Get multiple verses at once
-  async getMultipleVerses(bibleId, references) {
-    const verses = [];
-
-    for (const ref of references) {
-      try {
-        const verse = await this.getFormattedVerse(bibleId, ref);
-        if (verse) {
-          verses.push(verse);
-        }
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(`Error fetching verse ${ref}:`, error);
-      }
+    // Handle Revelation specifically
+    if (clean.toLowerCase().includes('revelation')) {
+        return 'Revelation';
     }
 
-    return verses;
+    return clean
+      .replace(/According to Saint /g, '')
+      .replace(/According to /g, '')
+      .trim();
   }
 }
 
-export default new BibleAPIService();
+const bibleApi = new BibleAPIService();
+export default bibleApi;

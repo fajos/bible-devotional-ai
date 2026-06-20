@@ -1,5 +1,4 @@
 // screens/Settings.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState } from 'react';
 import {
     Alert,
@@ -8,13 +7,17 @@ import {
     Switch,
     Text,
     TouchableOpacity,
-    View
+    View,
+    ActivityIndicator
 } from 'react-native';
+import Store from '../services/store';
+import { runHighlightStressTest, runBibleDownloadTest, verifyHighlightMigration } from '../services/stressTest';
 
 export default function Settings() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
+  const [isTesting, setIsTesting] = useState(false);
 
   const clearAllData = () => {
     Alert.alert(
@@ -27,7 +30,7 @@ export default function Settings() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await AsyncStorage.clear();
+              await Store.clearAllFileSystemData();
               Alert.alert('Success', 'All data has been cleared');
             } catch (error) {
               Alert.alert('Error', 'Failed to clear data');
@@ -36,6 +39,84 @@ export default function Settings() {
         }
       ]
     );
+  };
+
+  const clearHighlights = () => {
+    Alert.alert(
+      'Clear Highlights',
+      'This will remove all your verse highlights. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await Store.clearHighlights();
+              Alert.alert('Success', 'Highlights cleared');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear highlights');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const clearCache = () => {
+    Alert.alert(
+      'Clear Bible Cache',
+      'This will remove all downloaded offline Bibles. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Cache',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await Store.clearCache();
+              Alert.alert('Success', 'Cache cleared');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to clear cache');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const runTests = async () => {
+    setIsTesting(true);
+    try {
+      // 1. Run Migration Verification
+      console.log('Running Migration Verification...');
+      const migrationResult = await verifyHighlightMigration();
+
+      if (!migrationResult.success) {
+        Alert.alert('Migration Test Failed', JSON.stringify(migrationResult.details));
+        setIsTesting(false);
+        return;
+      }
+
+      // 2. Run Stress Test
+      console.log('Running Stress Test...');
+      const highlightResult = await runHighlightStressTest(5000); // 5000 for final verification
+
+      Alert.alert(
+        'Test Results',
+        `Migration: PASSED\n\nStress Test (5000 items):\n- Integrity: ${highlightResult.integrity ? 'Pass' : 'Fail'}\n- Save: ${highlightResult.saveTime}ms\n- Load: ${highlightResult.loadTime}ms\n\nStarting Bible download test (KJV)...`
+      );
+
+      const downloadResult = await runBibleDownloadTest('de4e12af7f28f599-01');
+      Alert.alert(
+        'Bible Download Result',
+        `Success: ${downloadResult.success}\nDuration: ${downloadResult.duration}s`
+      );
+    } catch (error) {
+      Alert.alert('Test Failed', error.message);
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   return (
@@ -85,6 +166,34 @@ export default function Settings() {
         
         <TouchableOpacity style={styles.button} onPress={clearAllData}>
           <Text style={styles.buttonText}>Clear All Data</Text>
+        </TouchableOpacity>
+
+        <View style={styles.rowButtons}>
+          <TouchableOpacity
+            style={[styles.smallButton, { backgroundColor: '#f39c12' }]}
+            onPress={clearHighlights}
+          >
+            <Text style={styles.buttonText}>Clear Highlights</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.smallButton, { backgroundColor: '#7f8c8d' }]}
+            onPress={clearCache}
+          >
+            <Text style={styles.buttonText}>Clear Cache</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.button, { marginTop: 10, backgroundColor: '#3498db' }]}
+          onPress={runTests}
+          disabled={isTesting}
+        >
+          {isTesting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Run Stress Tests</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -152,8 +261,19 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  rowButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  smallButton: {
+    flex: 0.48,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
   aboutInfo: {
     alignItems: 'center',

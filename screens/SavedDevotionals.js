@@ -1,5 +1,4 @@
 // screens/SavedDevotionals.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
     Alert,
@@ -9,6 +8,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import Store from '../services/store';
 
 export default function SavedDevotionals({ navigation }) {
   const [savedDevotionals, setSavedDevotionals] = useState([]);
@@ -26,16 +26,14 @@ export default function SavedDevotionals({ navigation }) {
 
   const loadSavedDevotionals = async () => {
     try {
-      const saved = await AsyncStorage.getItem('savedDevotionals');
-      if (saved) {
-        setSavedDevotionals(JSON.parse(saved));
-      }
+      const saved = await Store.getSavedDevotionals();
+      setSavedDevotionals(saved);
     } catch (error) {
       console.error('Error loading saved:', error);
     }
   };
 
-  const deleteDevotional = async (id) => {
+  const deleteDevotional = async (devotional) => {
     Alert.alert(
       'Delete Devotional',
       'Are you sure you want to remove this devotional?',
@@ -45,9 +43,8 @@ export default function SavedDevotionals({ navigation }) {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            const updated = savedDevotionals.filter(item => item.id !== id);
-            await AsyncStorage.setItem('savedDevotionals', JSON.stringify(updated));
-            setSavedDevotionals(updated);
+            await Store.toggleSaveDevotional(devotional);
+            loadSavedDevotionals();
           }
         }
       ]
@@ -61,7 +58,7 @@ export default function SavedDevotionals({ navigation }) {
     >
       <View style={styles.cardHeader}>
         <Text style={styles.topic}>{item.topic}</Text>
-        <TouchableOpacity onPress={() => deleteDevotional(item.id)}>
+        <TouchableOpacity onPress={() => deleteDevotional(item)}>
           <Text style={styles.deleteButton}>🗑️</Text>
         </TouchableOpacity>
       </View>

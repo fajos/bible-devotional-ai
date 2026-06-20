@@ -1,20 +1,35 @@
 // app/(tabs)/library.js
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useNavigation } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  ListRenderItem,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import * as store from '../../services/store';
 
+interface Devotional {
+  id: string;
+  type: 'study' | 'reading_plan' | 'devotional';
+  topic?: string;
+  content?: string;
+  date?: string;
+  savedAt?: string;
+  bibleVersion?: string;
+  data?: {
+    title: string;
+    description: string;
+  };
+}
+
 export default function LibraryScreen() {
-  const [savedItems, setSavedItems] = useState([]);
+  const [savedItems, setSavedItems] = useState<Devotional[]>([]);
   const router = useRouter();
   const navigation = useNavigation();
 
@@ -29,12 +44,15 @@ export default function LibraryScreen() {
     return unsubscribe;
   }, [navigation]);
 
-  const loadSavedItems = async () => {
+  const loadSavedItems = async (): Promise<void> => {
     try {
       const items = await store.getSavedDevotionals();
       if (items) {
         // Sort by saved date, newest first
-        const sortedItems = [...items].sort((a, b) => new Date(b.savedAt || b.date) - new Date(a.savedAt || a.date));
+        const sortedItems = [...items].sort(
+          (a, b) =>
+            new Date(b.savedAt || b.date).getTime() - new Date(a.savedAt || a.date).getTime()
+        );
         setSavedItems(sortedItems);
       }
     } catch (error) {
@@ -42,7 +60,7 @@ export default function LibraryScreen() {
     }
   };
 
-  const deleteItem = async (id) => {
+  const deleteItem = async (id: string): Promise<void> => {
     Alert.alert(
       'Remove Item',
       'Are you sure you want to remove this from your library?',
@@ -61,23 +79,27 @@ export default function LibraryScreen() {
     );
   };
 
-    const renderItem = ({ item }) => (
+    const renderItem: ListRenderItem<Devotional> = ({ item }) => (
         <TouchableOpacity
             style={styles.itemCard}
             onPress={() => {
                 store.storeDevotional(item);
-                router.push(`/devotional/${item.id}`);
+                if (item.type === 'reading_plan') {
+                    router.push(`/reading-plan/${item.id}`);
+                } else {
+                    router.push(`/devotional/${item.id}`);
+                }
             }}
         >
             <View style={styles.itemHeader}>
         <View style={styles.itemType}>
           <Ionicons 
-            name={item.type === 'study' ? 'school' : 'book'} 
+            name={item.type === 'study' ? 'school' : item.type === 'reading_plan' ? 'calendar' : 'book'}
             size={16} 
             color={COLORS.gold} 
           />
           <Text style={styles.itemTypeText}>
-            {item.type === 'study' ? 'Study' : 'Devotional'}
+            {item.type === 'study' ? 'Study' : item.type === 'reading_plan' ? 'Reading Plan' : 'Devotional'}
           </Text>
         </View>
         <TouchableOpacity onPress={() => deleteItem(item.id)}>
@@ -85,17 +107,17 @@ export default function LibraryScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.itemTopic}>{item.topic}</Text>
+      <Text style={styles.itemTopic}>{item.type === 'reading_plan' ? item.data?.title ?? '' : item.topic}</Text>
       
-      {item.content && (
+      {(item.content || (item.type === 'reading_plan' && item.data?.description)) && (
         <Text style={styles.itemPreview} numberOfLines={2}>
-          {item.content}
+          {item.type === 'reading_plan' ? item.data?.description ?? '' : item.content}
         </Text>
       )}
 
       <View style={styles.itemFooter}>
         <Text style={styles.itemDate}>
-          {new Date(item.savedAt || item.date).toLocaleDateString()}
+          {new Date(item.savedAt ?? item.date ?? Date.now()).toLocaleDateString()}
         </Text>
         {item.bibleVersion && (
           <View style={styles.versionBadge}>

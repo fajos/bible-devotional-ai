@@ -1,20 +1,22 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect } from 'react';
-import {
-    ActivityIndicator,
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    TextInput,
-    Alert
-} from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, SHADOWS, SPACING } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
 import store from '../../services/store';
+import { API_CONFIG } from '../../services/config';
 
 interface Bible {
   id: string;
@@ -55,8 +57,15 @@ export default function BibleScreen() {
   }, []);
 
   const loadDownloadedList = async () => {
-    const downloaded = await store.getCachedData('downloaded_bibles') || [];
-    setDownloadedIds(downloaded);
+    const downloaded: string[] = await store.getCachedData('downloaded_bibles') || [];
+    // Ensure all downloaded IDs are still valid according to config
+    const validIds = Object.values(API_CONFIG.BIBLE_API.versions) as string[];
+    const filtered = downloaded.filter((id: string) => validIds.includes(id));
+
+    if (filtered.length !== downloaded.length) {
+      await store.setCachedData('downloaded_bibles', filtered);
+    }
+    setDownloadedIds(filtered);
   };
 
   const loadFavorites = async () => {
@@ -91,11 +100,13 @@ export default function BibleScreen() {
     let newFavs: FavoriteBible[];
     if (isFav) {
       newFavs = favorites.filter(f => f.id !== bible.id);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
       if (favorites.length >= 5) {
         Alert.alert('Limit Reached', 'You can select up to 5 favorite versions for comparison.');
         return;
       }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       newFavs = [...favorites, {
         id: bible.id,
         name: bible.abbreviation || bible.name.substring(0, 4),
@@ -123,6 +134,7 @@ export default function BibleScreen() {
   const handleDownload = async (bible: Bible) => {
     if (downloadProgress[bible.id]) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       await bibleAPIService.downloadBible(bible.id, (progress: number, status: string) => {
         setDownloadProgress(prev => ({
@@ -131,6 +143,7 @@ export default function BibleScreen() {
         }));
       });
 
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setDownloadedIds(prev => [...prev, bible.id]);
       setDownloadProgress(prev => {
         const next = { ...prev };
@@ -301,7 +314,7 @@ export default function BibleScreen() {
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.center}>
-              <Text style={styles.emptyText}>No versions found matching "{searchQuery}"</Text>
+            <Text style={styles.emptyText}>No versions found matching &quot;{searchQuery}&quot;</Text>
             </View>
           }
         />

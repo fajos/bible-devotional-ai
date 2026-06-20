@@ -1,7 +1,8 @@
-// app/(tabs)/search.js
+// app/(tabs)/search.tsx
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
     ActivityIndicator,
     Alert,
@@ -15,23 +16,30 @@ import {
     View,
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
-import bibleAPIService from '../../services/bibleApi';
+import { generateBibleStudy } from '../../services/devotionalEngine';
 import openaiService from '../../services/openai';
 import * as store from '../../services/store';
 
 export default function SearchScreen() {
-  const { q } = useLocalSearchParams();
+  const { q, mode } = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchMode, setSearchMode] = useState(mode === 'plan' ? 'plan' : 'study'); // 'study' or 'plan'
+  const [planDuration, setPlanDuration] = useState(7);
   const router = useRouter();
 
   useEffect(() => {
+    if (mode === 'plan') {
+      setSearchMode('plan');
+    }
+  }, [mode]);
+
+  useEffect(() => {
     if (q) {
-      setSearchQuery(q);
-      // Automatically trigger search if query is provided
-      // Wait a bit for layout
+      const queryStr = Array.isArray(q) ? q[0] : q;
+      setSearchQuery(queryStr);
       setTimeout(() => {
-        handleSearch(q);
+        handleSearch(queryStr);
       }, 500);
     }
   }, [q]);
@@ -51,238 +59,20 @@ export default function SearchScreen() {
     { icon: '🔥', label: 'Moses', query: 'Life of Moses' },
   ];
 
-  // First, validate if the topic is biblical
-  const validateBiblicalTopic = async (topic) => {
-    try {
-      const validationPrompt = `Is "${topic}" a biblical topic, person, event, or concept found in the Bible? 
-      Answer with ONLY "YES" or "NO". 
-      If it's a general life question (like "how to be happy"), determine if the Bible addresses this topic.`;
-      
-      const response = await openaiService.generateContent(validationPrompt);
-      return response.trim().toUpperCase().includes('YES');
-    } catch (error) {
-      console.error('Validation error:', error);
-      return false;
-    }
-  };
-
-  // Generate study content
-  const generateStudyContent = async (topic) => {
-    try {
-      return await openaiService.generateBibleStudy(topic);
-    } catch (error) {
-      console.error('Generation error:', error);
-      throw error;
-    }
-  };
-
-  // Parse the AI response into structured data
-  const parseStudyContent = (content, topic) => {
-    const stripMarkdown = (text) => {
-      if (!text) return '';
-      return text
-        .replace(/#+\s/g, '') // Remove markdown headers
-        .replace(/\*\*/g, '') // Remove bold
-        .replace(/\*/g, '')   // Remove italics
-        .replace(/__/g, '')   // Remove underline
-        .replace(/`/g, '')    // Remove code ticks
-        .replace(/^[\s-•*]+/, '') // Remove leading bullets/dashes/asterisks
-        .trim();
-    };
-
-    const study = {
-      id: `study_${Date.now()}`,
-      date: new Date().toISOString(),
-      topic: stripMarkdown(topic),
-      type: 'study',
-      content: '',
-      keyVerse: null,
-      verses: [],
-      historicalContext: '',
-      oldTestamentShadows: '',
-      newTestamentFulfillment: '',
-      application: '',
-      prayer: '',
-      questions: [],
-      prayerPoints: [],
-      bibleVersion: 'KJV',
-    };
-
-    const sections = content.split('\n\n');
-    let currentSection = '';
-
-    const lines = content.split('\n');
-
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-
-      if (trimmed.startsWith('TOPIC:')) {
-        study.topic = stripMarkdown(trimmed.replace('TOPIC:', ''));
-      } else if (trimmed.startsWith('KEY_VERSE:')) {
-        const verseRef = stripMarkdown(trimmed.replace('KEY_VERSE:', ''));
-        study.keyVerse = { reference: verseRef, text: '' };
-      } else if (trimmed.startsWith('INTRODUCTION:')) {
-        currentSection = 'introduction';
-      } else if (trimmed.startsWith('KEY_VERSES:')) {
-        currentSection = 'verses';
-      } else if (trimmed.startsWith('HISTORICAL_CONTEXT:')) {
-        currentSection = 'historicalContext';
-      } else if (trimmed.startsWith('OLD_TESTAMENT_SHADOWS:')) {
-        currentSection = 'otShadows';
-      } else if (trimmed.startsWith('NEW_TESTAMENT_FULFILLMENT:')) {
-        currentSection = 'ntFulfillment';
-      } else if (trimmed.startsWith('STUDY_NOTES:')) {
-        currentSection = 'content';
-      } else if (trimmed.startsWith('PRACTICAL_APPLICATION:')) {
-        currentSection = 'application';
-      } else if (trimmed.startsWith('DISCUSSION_QUESTIONS:')) {
-        currentSection = 'questions';
-      } else if (trimmed.startsWith('PRAYER_POINTS:')) {
-        currentSection = 'prayerPoints';
-      } else {
-        switch (currentSection) {
-          case 'introduction':
-            study.introduction = (study.introduction ? study.introduction + '\n' : '') + stripMarkdown(trimmed);
-            break;
-          case 'content':
-            study.content += (study.content ? '\n\n' : '') + stripMarkdown(trimmed);
-            break;
-          case 'historicalContext':
-            study.historicalContext += (study.historicalContext ? ' ' : '') + stripMarkdown(trimmed);
-            break;
-          case 'otShadows':
-            study.oldTestamentShadows += (study.oldTestamentShadows ? ' ' : '') + stripMarkdown(trimmed);
-            break;
-          case 'ntFulfillment':
-            study.newTestamentFulfillment += (study.newTestamentFulfillment ? ' ' : '') + stripMarkdown(trimmed);
-            break;
-          case 'verses':
-            if (trimmed.startsWith('-')) {
-              const part = trimmed.substring(1).trim(); // Remove leading dash
-              // Try to find the separator between reference and explanation
-              // We look for ": " or " - " which are common separators
-              let separatorIndex = part.indexOf(': ');
-              let sepLen = 2;
-
-              if (separatorIndex === -1) {
-                separatorIndex = part.indexOf(' - ');
-                sepLen = 3;
-              }
-
-              if (separatorIndex !== -1) {
-                study.verses.push({
-                  reference: stripMarkdown(part.substring(0, separatorIndex)),
-                  explanation: stripMarkdown(part.substring(separatorIndex + sepLen)),
-                });
-              } else {
-                study.verses.push({ reference: stripMarkdown(part), explanation: '' });
-              }
-            }
-            break;
-          case 'application':
-            study.application += (study.application ? '\n' : '') + stripMarkdown(trimmed);
-            break;
-          case 'questions':
-            if (trimmed.match(/^\d\./)) {
-              study.questions.push(stripMarkdown(trimmed.replace(/^\d\.\s*/, '')));
-            }
-            break;
-          case 'prayerPoints':
-            if (trimmed.startsWith('-')) {
-              study.prayerPoints.push(stripMarkdown(trimmed.replace(/^-\s*/, '')));
-            }
-            break;
-        }
-      }
-    });
-
-    return study;
-  };
-
-  // Fetch actual Bible verse text
-const fetchVerseTexts = async (study) => {
-  try {
-    // We'll use a free version (KJV) for search results to save API credits
-    // unless the user has specifically requested a version (feature for later)
-    const preferredVersionId = 'de4e12af7f28f599-01'; // King James Version (Free fallback)
-    const preferredName = 'King James Version';
-
-    // Fetch key verse
-    if (study.keyVerse?.reference) {
-      console.log('Fetching key verse:', study.keyVerse.reference);
-      try {
-        const verseData = await bibleAPIService.getFormattedVerse(
-          preferredVersionId,
-          study.keyVerse.reference,
-          preferredName
-        );
-        console.log('Key verse data:', verseData);
-        
-        if (verseData && verseData.content) {
-          // Clean up the verse text - remove HTML tags if any
-          const cleanText = verseData.content.replace(/<[^>]*>/g, '').trim();
-          study.keyVerse.text = cleanText;
-        } else if (verseData && verseData.text) {
-          study.keyVerse.text = verseData.text;
-        } else {
-          console.log('No verse data returned for key verse');
-          study.keyVerse.text = 'Verse text unavailable';
-        }
-      } catch (verseError) {
-        console.error('Error fetching key verse:', verseError);
-        study.keyVerse.text = 'Error loading verse';
-      }
-    }
-
-    // Fetch other verses
-    if (study.verses && study.verses.length > 0) {
-      for (let verse of study.verses) {
-        if (verse.reference) {
-          console.log('Fetching verse:', verse.reference);
-          try {
-            const verseData = await bibleAPIService.getFormattedVerse(
-              preferredVersionId,
-              verse.reference,
-              preferredName
-            );
-            
-            if (verseData && verseData.content) {
-              const cleanText = verseData.content.replace(/<[^>]*>/g, '').trim();
-              verse.text = cleanText;
-            } else if (verseData && verseData.text) {
-              verse.text = verseData.text;
-            } else {
-              verse.text = 'Verse text unavailable';
-            }
-          } catch (verseError) {
-            console.error(`Error fetching verse ${verse.reference}:`, verseError);
-            verse.text = 'Error loading verse';
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error in fetchVerseTexts:', error);
-  }
-  
-  return study;
-};
-
-  const handleSearch = async (overrideQuery) => {
-    // Determine the query, ensuring we handle string overrides vs event objects from UI components
-    const queryToUse = typeof overrideQuery === 'string' ? overrideQuery : searchQuery;
+  const handleSearch = async (overrideQuery?: string) => {
+    const queryToUse = overrideQuery || searchQuery;
 
     if (!queryToUse || !queryToUse.trim()) {
       Alert.alert('Please Enter a Topic', 'Type a biblical topic, person, or question to study.');
       return;
     }
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setLoading(true);
     const trimmedQuery = queryToUse.trim();
     try {
       // Step 1: Validate if topic is biblical
-      const isBiblical = await validateBiblicalTopic(trimmedQuery);
+      const isBiblical = await openaiService.validateBiblicalTopic(trimmedQuery);
       
       if (!isBiblical) {
         Alert.alert(
@@ -294,31 +84,38 @@ const fetchVerseTexts = async (study) => {
         return;
       }
 
-      // Step 2: Generate study content
-      const aiContent = await generateStudyContent(trimmedQuery);
+      if (searchMode === 'plan') {
+        const plan = await openaiService.generateReadingPlan(trimmedQuery, planDuration);
+        const planId = Date.now().toString();
+        await store.storeDevotional({
+          id: planId,
+          type: 'reading_plan',
+          data: plan
+        });
+        setLoading(false);
+        router.push(`/reading-plan/${planId}`);
+        return;
+      }
+
+      // Step 2: Generate study content using DevotionalEngine (which uses Bolls Bible API)
+      const study = await generateBibleStudy(trimmedQuery, 'NKJV');
       
-      // Step 3: Parse the content
-      let study = parseStudyContent(aiContent, trimmedQuery);
-      
-      // Step 4: Fetch actual Bible verses
-      study = await fetchVerseTexts(study);
-      
-      // Step 5: Save to storage and navigate
-      store.storeDevotional(study);
-setLoading(false);
-router.push(`/devotional/${study.id}`);
+      // Step 3: Save to storage and navigate
+      await store.storeDevotional(study);
+      setLoading(false);
+      router.push(`/devotional/${study.id}`);
       
     } catch (error) {
       console.error('Search error:', error);
       Alert.alert(
         'Error',
-        'Unable to generate study. Please check your internet connection and try again.'
+        'Unable to generate content. Please check your internet connection and try again.'
       );
       setLoading(false);
     }
   };
 
-  const handleTopicPress = (topic) => {
+  const handleTopicPress = (topic: { query: string }) => {
     setSearchQuery(topic.query);
     handleSearch(topic.query);
   };
@@ -333,25 +130,79 @@ router.push(`/devotional/${study.id}`);
         contentContainerStyle={styles.contentContainer}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Search Header */}
         <View style={styles.searchHeader}>
-          <Text style={styles.headerTitle}>Explore the Word</Text>
+          <Text style={styles.headerTitle}>
+            {searchMode === 'plan' ? 'Personal Reading Plans' : 'Explore the Word'}
+          </Text>
           <Text style={styles.headerSubtitle}>
-            Search any biblical topic, person, or question
+            {searchMode === 'plan'
+              ? `Generate a ${planDuration}-day theological journey. Explore how the "Whole Counsel of God" speaks to your specific situation or season.`
+              : 'Deep-dive into the original context, Hebrew/Greek meanings, and the scarlet thread of redemption.'}
           </Text>
         </View>
 
-        {/* Search Input */}
         <View style={styles.searchInputContainer}>
+          <View style={styles.modeSelectionContainer}>
+            <TouchableOpacity
+              style={[styles.modeCard, searchMode === 'study' && styles.modeCardActive]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setSearchMode('study');
+              }}
+            >
+              <View style={[styles.modeIconCircle, searchMode === 'study' && styles.modeIconCircleActive]}>
+                <Ionicons name="book" size={24} color={searchMode === 'study' ? COLORS.white : COLORS.primary} />
+              </View>
+              <Text style={[styles.modeCardTitle, searchMode === 'study' && styles.modeCardTitleActive]}>AI Study</Text>
+              <Text style={[styles.modeCardDesc, searchMode === 'study' && styles.modeCardDescActive]}>Exegesis & Context</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.modeCard, searchMode === 'plan' && styles.modeCardActive]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setSearchMode('plan');
+              }}
+            >
+              <View style={[styles.modeIconCircle, searchMode === 'plan' && styles.modeIconCircleActive]}>
+                <Ionicons name="calendar" size={24} color={searchMode === 'plan' ? COLORS.white : COLORS.primary} />
+              </View>
+              <Text style={[styles.modeCardTitle, searchMode === 'plan' && styles.modeCardTitleActive]}>Reading Plan</Text>
+              <Text style={[styles.modeCardDesc, searchMode === 'plan' && styles.modeCardDescActive]}>Theological Roadmap</Text>
+            </TouchableOpacity>
+          </View>
+
+          {searchMode === 'plan' && (
+            <View style={styles.durationSelector}>
+              <Text style={styles.durationLabel}>Plan Duration (Days):</Text>
+              <View style={styles.durationOptions}>
+                {[3, 5, 7, 14, 21, 30].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.durationOption, planDuration === d && styles.durationOptionActive]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setPlanDuration(d);
+                    }}
+                  >
+                    <Text style={[styles.durationOptionText, planDuration === d && styles.durationOptionTextActive]}>
+                      {d}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           <View style={styles.inputWrapper}>
             <Ionicons name="search" size={20} color={COLORS.gray} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder="e.g., Faith, David and Goliath, How to forgive..."
+              placeholder={searchMode === 'plan' ? "e.g. Sovereignty, The Covenants, Desert Seasons" : "e.g. Romans 8 Exegesis, Life of David, Tabernacle Typology"}
               placeholderTextColor={COLORS.gray}
               value={searchQuery}
               onChangeText={setSearchQuery}
-              onSubmitEditing={handleSearch}
+              onSubmitEditing={() => handleSearch(searchQuery)}
               returnKeyType="search"
             />
             {searchQuery.length > 0 && (
@@ -363,7 +214,7 @@ router.push(`/devotional/${study.id}`);
 
           <TouchableOpacity
             style={[styles.searchButton, loading && styles.searchButtonDisabled]}
-            onPress={handleSearch}
+            onPress={() => handleSearch(searchQuery)}
             disabled={loading}
           >
             {loading ? (
@@ -371,13 +222,14 @@ router.push(`/devotional/${study.id}`);
             ) : (
               <>
                 <Ionicons name="sparkles" size={20} color={COLORS.white} />
-                <Text style={styles.searchButtonText}>Generate Study</Text>
+                <Text style={styles.searchButtonText}>
+                    {searchMode === 'plan' ? `Generate ${planDuration}-Day Plan` : 'Generate AI Study'}
+                </Text>
               </>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* Popular Topics */}
         <View style={styles.topicsSection}>
           <Text style={styles.sectionTitle}>Popular Topics</Text>
           <View style={styles.topicsGrid}>
@@ -394,7 +246,6 @@ router.push(`/devotional/${study.id}`);
           </View>
         </View>
 
-        {/* Search Tips */}
         <View style={styles.tipsSection}>
           <View style={styles.tipsHeader}>
             <Ionicons name="bulb" size={20} color={COLORS.gold} />
@@ -485,8 +336,94 @@ const styles = StyleSheet.create({
   searchButtonText: {
     color: COLORS.white,
     fontSize: FONTS.ui.size.medium,
-    fontWeight: '600',
+    fontWeight: '700',
     marginLeft: SPACING.sm,
+  },
+  modeSelectionContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.md,
+  },
+  modeCard: {
+    width: '48%',
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: SPACING.md,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    ...SHADOWS.small,
+  },
+  modeCardActive: {
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.primary,
+  },
+  modeIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  modeIconCircleActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  modeCardTitle: {
+    fontSize: FONTS.ui.size.medium,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: 2,
+  },
+  modeCardTitleActive: {
+    color: COLORS.white,
+  },
+  modeCardDesc: {
+    fontSize: 10,
+    color: COLORS.gray,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  modeCardDescActive: {
+    color: COLORS.grayLight,
+  },
+  durationSelector: {
+    marginBottom: SPACING.md,
+    backgroundColor: COLORS.white,
+    padding: SPACING.md,
+    borderRadius: 12,
+    ...SHADOWS.small,
+  },
+  durationLabel: {
+    fontSize: FONTS.ui.size.small,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginBottom: SPACING.sm,
+  },
+  durationOptions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  durationOption: {
+    width: 40,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  durationOptionActive: {
+    backgroundColor: COLORS.gold,
+  },
+  durationOptionText: {
+    fontSize: FONTS.ui.size.small,
+    color: COLORS.gold,
+    fontWeight: '700',
+  },
+  durationOptionTextActive: {
+    color: COLORS.white,
   },
   topicsSection: {
     marginHorizontal: SPACING.md,

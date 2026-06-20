@@ -1,50 +1,39 @@
-# Welcome to your Expo app 👋
+# Bible Devotional AI
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An AI-powered Bible study and devotional application built with React Native and Expo.
 
-## Get started
+## Storage Architecture (Expo 54 FileSystem)
 
-1. Install dependencies
+The application uses a high-performance, chunked storage architecture for user data, specifically optimized for Bible highlights.
 
+### High-Performance Highlights
+- **Chunking Strategy:** Highlights are partitioned by Bible book (e.g., `GEN.json`, `MAT.json`).
+- **Partial Loading:** The Bible Reader only loads highlights for the book currently being read, preventing performance bottlenecks as the user's library grows.
+- **Migration:** Automatically migrates legacy monolithic `highlights.json` and `AsyncStorage` data into the new chunked structure.
+- **Bulk Operations:** Optimized for multi-verse highlighting and removal.
+
+### Core Data Persistence
+- **Library & Favorites:** Stored in `saved_devotionals.json` and `favorites.json`.
+- **Bible Cache:** High-speed JSON caching for Bible text in a dedicated cache directory.
+- **Clean Architecture:** Centralized `store.js` service manages all I/O operations using the latest Expo `File` and `Directory` APIs.
+
+## Key Features
+- **Bible Reader:** Fast navigation, multi-version support, and persistent highlights.
+- **Reading Plans:** Track progress across multi-day spiritual journeys.
+- **Devotionals:** AI-generated or curated daily spiritual content.
+- **Verse Sharing:** Create beautiful, shareable verse-on-image graphics.
+
+## Development
+
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the app
-
+2. Start the app:
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Testing
+Stress tests are available in the Settings screen to verify storage integrity and performance under heavy loads (5,000+ items).

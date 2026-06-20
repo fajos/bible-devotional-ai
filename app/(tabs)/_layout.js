@@ -72,6 +72,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="prayer"
+        options={{
+          title: 'Prayer',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="hand-left" size={size} color={color} />
+          ),
+          headerTitle: 'Prayer Journal',
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',

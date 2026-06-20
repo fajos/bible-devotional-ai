@@ -1,19 +1,31 @@
-// services/store.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { File, Directory, Paths } from 'expo-file-system';
+import { API_CONFIG } from './config';
+
+/**
+ * Expo 54 FileSystem API Migration.
+ * AGENT: Standardize storage architecture to use new File and Directory classes.
+ */
 
 // Simple in-memory store for passing data between screens
 let currentDevotionalData = null;
 
-const FAVORITE_BIBLES_KEY = 'favorite_bibles';
+// File Names
+const FAVORITES_FILE = 'favorites.json';
 const SAVED_DEVOTIONALS_FILE = 'saved_devotionals.json';
 const HIGHLIGHTS_FILE = 'highlights.json';
+const LAST_READ_FILE = 'last_read.json';
+const DAILY_DEVOTIONAL_FILE = 'daily_devotional.json';
+const PRAYER_JOURNAL_FILE = 'prayer_journal.json';
 
-/**
- * Use the new Expo 54 API.
- */
+// Legacy keys for migration
+const FAVORITE_BIBLES_KEY = 'favorite_bibles';
+const LEGACY_SAVED_DEVOTIONALS_KEY = 'savedDevotionals';
+
 const BASE_DIR = Paths.document; // Persistent storage
 const BIBLE_CACHE_DIR = new Directory(Paths.cache, 'bible_cache');
+
+let _bibleCacheDirValidated = false;
 
 export const storeDevotional = (data) => {
   currentDevotionalData = data;
@@ -27,36 +39,44 @@ export const clearStoredDevotional = () => {
   currentDevotionalData = null;
 };
 
-// Favorite Bibles (Small enough for AsyncStorage, but we wrap it for safety)
+// --- Favorite Bibles ---
+
 export const setFavoriteBibles = async (bibles) => {
   try {
-    await AsyncStorage.setItem(FAVORITE_BIBLES_KEY, JSON.stringify(bibles));
+    const file = new File(BASE_DIR, FAVORITES_FILE);
+    await file.write(JSON.stringify(bibles));
+    // Clean up legacy if it exists
+    await AsyncStorage.removeItem(FAVORITE_BIBLES_KEY);
   } catch (error) {
-    if (error.message.includes('SQLITE_FULL')) {
-      console.warn('AsyncStorage full, falling back to FileSystem for favorites');
-      const file = new File(BASE_DIR, 'favorites.json');
-      await file.write(JSON.stringify(bibles));
-    }
-    console.error('Error saving favorite bibles:', error);
+    console.error('Error saving favorite bibles to FS:', error);
   }
 };
 
 export const getFavoriteBibles = async () => {
   try {
-    const saved = await AsyncStorage.getItem(FAVORITE_BIBLES_KEY);
-    if (!saved) {
-      const file = new File(BASE_DIR, 'favorites.json');
-      if (file.exists) {
-        return JSON.parse(await file.text());
+    const file = new File(BASE_DIR, FAVORITES_FILE);
+    let bibles = [];
+
+    if (file.exists) {
+      bibles = JSON.parse(await file.text());
+    } else {
+      // Migration: Check legacy AsyncStorage
+      const saved = await AsyncStorage.getItem(FAVORITE_BIBLES_KEY);
+      if (saved) {
+        bibles = JSON.parse(saved);
+        await setFavoriteBibles(bibles);
       }
     }
-    return saved ? JSON.parse(saved) : [];
+
+    // Filter out invalid/removed versions (like BBE or TLB)
+    const validIds = Object.values(API_CONFIG.BIBLE_API.versions);
+    return bibles.filter(b => validIds.includes(b.id));
   } catch (error) {
     return [];
   }
 };
 
-// --- Library Management (Moved to FileSystem to prevent SQLITE_FULL) ---
+// --- Library Management ---
 
 export const getSavedDevotionals = async () => {
   try {
@@ -67,16 +87,16 @@ export const getSavedDevotionals = async () => {
     }
 
     // Migration: Check legacy AsyncStorage library
-    const legacy = await AsyncStorage.getItem('savedDevotionals');
+    const legacy = await AsyncStorage.getItem(LEGACY_SAVED_DEVOTIONALS_KEY);
     if (legacy) {
       const parsed = JSON.parse(legacy);
       await saveLibrary(parsed); // Move to FS
-      await AsyncStorage.removeItem('savedDevotionals').catch(() => {});
+      await AsyncStorage.removeItem(LEGACY_SAVED_DEVOTIONALS_KEY);
       return parsed;
     }
     return [];
   } catch (e) {
-    console.error('Error loading library:', e);
+    console.error('Error loading library from FS:', e);
     return [];
   }
 };
@@ -108,9 +128,152 @@ export const toggleSaveDevotional = async (devotional) => {
 
 // --- Highlight Management ---
 
+/**
+ * Returns statistics about the highlights storage.
+ */
+export const getHighlightStats = async () => {
+  try {
+    await ensureHighlightsDir();
+    const files = await HIGHLIGHTS_DIR.list();
+    let totalHighlights = 0;
+    let fileCount = 0;
+
+    for (const item of files) {
+      if (item instanceof File && item.name.endsWith('.json')) {
+        try {
+          const content = await item.text();
+          const chunk = JSON.parse(content);
+          totalHighlights += Object.keys(chunk).length;
+          fileCount++;
+        } catch (e) {
+          // Skip malformed files
+        }
+      }
+    }
+    return { totalHighlights, fileCount };
+  } catch (e) {
+    return { totalHighlights: 0, fileCount: 0 };
+  }
+};
+
+const HIGHLIGHTS_DIR = new Directory(BASE_DIR, 'highlights');
+let _highlightsDirValidated = false;
+
+const ensureHighlightsDir = async () => {
+  if (!_highlightsDirValidated) {
+    try {
+      if (!HIGHLIGHTS_DIR.exists) {
+        await HIGHLIGHTS_DIR.create({ idempotent: true });
+      }
+      _highlightsDirValidated = true;
+    } catch (e) {
+      console.error('Error creating highlights directory:', e);
+    }
+  }
+};
+
+const getHighlightChunkFileForBook = (bookId) => {
+  return new File(HIGHLIGHTS_DIR, `${bookId}.json`);
+};
+
+const getBookFromVerseId = (verseId) => {
+  if (!verseId) return 'unknown';
+  const parts = verseId.split('.');
+  // Bolls API verse ID: BIBLE.BOOK.CHAPTER.VERSE -> index 1
+  // Canonical verse ID: BOOK.CHAPTER.VERSE -> index 0
+  if (parts.length >= 4) return parts[1];
+  return parts[0];
+};
+
+/**
+ * Migration helper to split a single highlights object into book-based chunks.
+ */
+const migrateHighlightsToChunks = async (highlights) => {
+  if (!highlights || Object.keys(highlights).length === 0) return;
+
+  await ensureHighlightsDir();
+  const chunks = {};
+
+  // Group highlights by book
+  for (const [verseId, data] of Object.entries(highlights)) {
+    const book = getBookFromVerseId(verseId);
+    if (!chunks[book]) chunks[book] = {};
+    chunks[book][verseId] = data;
+  }
+
+  // Write each chunk to its respective file
+  for (const [book, data] of Object.entries(chunks)) {
+    const file = getHighlightChunkFileForBook(book);
+    let existing = {};
+    if (file.exists) {
+      try {
+        existing = JSON.parse(await file.text());
+      } catch (e) {
+        console.error(`Error parsing chunk ${book}:`, e);
+      }
+    }
+    await file.write(JSON.stringify({ ...existing, ...data }));
+  }
+};
+
 export const getHighlights = async () => {
   try {
-    const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
+    await ensureHighlightsDir();
+
+    // 1. Migration from old single FileSystem file
+    const oldFile = new File(BASE_DIR, HIGHLIGHTS_FILE);
+    if (oldFile.exists) {
+      try {
+        const oldData = JSON.parse(await oldFile.text());
+        await migrateHighlightsToChunks(oldData);
+        await oldFile.delete();
+      } catch (e) {
+        console.error('Error migrating highlights file:', e);
+      }
+    }
+
+    // 2. Migration from legacy AsyncStorage
+    const legacy = await AsyncStorage.getItem('bible_highlights');
+    if (legacy) {
+      try {
+        const parsed = JSON.parse(legacy);
+        await migrateHighlightsToChunks(parsed);
+        await AsyncStorage.removeItem('bible_highlights');
+      } catch (e) {
+        console.error('Error migrating legacy highlights:', e);
+      }
+    }
+
+    // 3. Read all chunks and merge into a single object for the UI
+    // Note: For very large sets (10k+), the reader should be updated
+    // to load only the current book's highlights using getHighlightsForBook.
+    const highlights = {};
+    const files = await HIGHLIGHTS_DIR.list();
+    for (const item of files) {
+      if (item instanceof File && item.name.endsWith('.json')) {
+        try {
+          const content = await item.text();
+          const chunk = JSON.parse(content);
+          Object.assign(highlights, chunk);
+        } catch (e) {
+          console.error(`Error reading highlight chunk ${item.name}:`, e);
+        }
+      }
+    }
+    return highlights;
+  } catch (e) {
+    console.error('Error loading highlights from FS:', e);
+    return {};
+  }
+};
+
+/**
+ * Loads highlights for a specific book to optimize reader performance.
+ */
+export const getHighlightsForBook = async (bookId) => {
+  try {
+    await ensureHighlightsDir();
+    const file = getHighlightChunkFileForBook(bookId);
     if (file.exists) {
       return JSON.parse(await file.text());
     }
@@ -120,65 +283,103 @@ export const getHighlights = async () => {
   }
 };
 
+/**
+ * Optimized for performance: only writes the affected book's chunk.
+ */
 export const saveHighlights = async (highlights) => {
   try {
-    const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
-    await file.write(JSON.stringify(highlights));
+    await migrateHighlightsToChunks(highlights);
   } catch (e) {
-    console.error('Error saving highlights:', e);
+    console.error('Error saving highlights to FS:', e);
   }
 };
 
 export const toggleHighlight = async (bibleId, verseId, color = null) => {
-  const highlights = await getHighlights();
-  // Use verseId alone for cross-translation support (e.g., "JHN.3.16")
-  const key = verseId;
-  const updatedHighlights = { ...highlights };
+  await ensureHighlightsDir();
+  const bookId = getBookFromVerseId(verseId);
+  const file = getHighlightChunkFileForBook(bookId);
 
-  if ((!color || color === 'transparent') && updatedHighlights[key]) {
-    delete updatedHighlights[key];
-  } else if (color && color !== 'transparent') {
-    updatedHighlights[key] = {
-      bibleId, // Original bibleId where highlight was created
+  let chunk = {};
+  if (file.exists) {
+    try {
+      chunk = JSON.parse(await file.text());
+    } catch (e) {
+      chunk = {};
+    }
+  }
+
+  const key = verseId;
+  const isRemoving = !color || color === 'transparent';
+
+  if (isRemoving && chunk[key]) {
+    delete chunk[key];
+  } else if (!isRemoving) {
+    chunk[key] = {
+      bibleId,
       verseId,
       color,
       updatedAt: new Date().toISOString(),
     };
   }
 
-  await saveHighlights(updatedHighlights);
-  return updatedHighlights;
+  await file.write(JSON.stringify(chunk));
+
+  // Return the full set to keep compatibility with existing UI
+  // Future: Optimization could return only the updated chunk if UI is updated.
+  return await getHighlights();
 };
 
 export const applyBulkHighlights = async (bibleId, verseIds, color = null) => {
-  const highlights = await getHighlights();
+  await ensureHighlightsDir();
   const now = new Date().toISOString();
-  // Create a fresh copy to ensure React detects the state change
-  const updatedHighlights = { ...highlights };
   const isRemoving = !color || color === 'transparent';
 
+  // Group by book to minimize file writes
+  const byBook = {};
   verseIds.forEach(verseId => {
-    const key = verseId; // Cross-translation support
-    if (isRemoving) {
-      delete updatedHighlights[key];
-    } else {
-      updatedHighlights[key] = {
-        bibleId,
-        verseId,
-        color,
-        updatedAt: now,
-      };
-    }
+    const bookId = getBookFromVerseId(verseId);
+    if (!byBook[bookId]) byBook[bookId] = [];
+    byBook[bookId].push(verseId);
   });
 
-  await saveHighlights(updatedHighlights);
-  return updatedHighlights;
+  for (const [bookId, ids] of Object.entries(byBook)) {
+    const file = getHighlightChunkFileForBook(bookId);
+    let chunk = {};
+    if (file.exists) {
+      try {
+        chunk = JSON.parse(await file.text());
+      } catch (e) {
+        chunk = {};
+      }
+    }
+
+    ids.forEach(vId => {
+      if (isRemoving) {
+        delete chunk[vId];
+      } else {
+        chunk[vId] = {
+          bibleId,
+          verseId: vId,
+          color,
+          updatedAt: now,
+        };
+      }
+    });
+    await file.write(JSON.stringify(chunk));
+  }
+
+  return await getHighlights();
 };
 
 // --- Cache Management ---
 
 export const getCachedData = async (key) => {
   try {
+    if (!_bibleCacheDirValidated) {
+      await BIBLE_CACHE_DIR.create({ idempotent: true });
+      _bibleCacheDirValidated = true;
+    }
+
     const safeKey = key.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json';
     const file = new File(BIBLE_CACHE_DIR, safeKey);
 
@@ -187,27 +388,42 @@ export const getCachedData = async (key) => {
     }
 
     const legacyData = await AsyncStorage.getItem('bible_cache_' + key);
-    return legacyData ? JSON.parse(legacyData) : null;
+    if (legacyData) {
+      try {
+        const parsed = JSON.parse(legacyData);
+        await setCachedData(key, parsed);
+        await AsyncStorage.removeItem('bible_cache_' + key);
+        return parsed;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
   } catch (e) {
     return null;
   }
 };
 
+export const cacheData = (key, data) => setCachedData(key, data);
+
 export const setCachedData = async (key, data) => {
   try {
-    if (!BIBLE_CACHE_DIR.exists) {
+    if (!_bibleCacheDirValidated) {
       await BIBLE_CACHE_DIR.create({ idempotent: true });
+      _bibleCacheDirValidated = true;
     }
 
     const safeKey = key.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.json';
     const file = new File(BIBLE_CACHE_DIR, safeKey);
     await file.write(JSON.stringify(data));
 
-    await AsyncStorage.removeItem('bible_cache_' + key).catch(() => {});
+    await AsyncStorage.removeItem('bible_cache_' + key);
   } catch (e) {
     console.error('Write cache error:', e);
   }
 };
+
+// --- Storage Utils & Size Helpers ---
 
 /**
  * Calculates the total size of a directory recursively.
@@ -258,6 +474,13 @@ export const clearCache = async () => {
 
 export const clearHighlights = async () => {
   try {
+    // 1. Clear the chunked directory
+    if (HIGHLIGHTS_DIR.exists) {
+      await HIGHLIGHTS_DIR.delete();
+      _highlightsDirValidated = false;
+    }
+
+    // 2. Clear the old legacy file if it exists
     const file = new File(BASE_DIR, HIGHLIGHTS_FILE);
     if (file.exists) {
       await file.delete();
@@ -270,13 +493,19 @@ export const clearHighlights = async () => {
 
 export const clearAllFileSystemData = async () => {
   try {
-    const filesToClear = [SAVED_DEVOTIONALS_FILE, 'favorites.json', HIGHLIGHTS_FILE, 'last_read.json'];
+    const filesToClear = [
+      SAVED_DEVOTIONALS_FILE,
+      FAVORITES_FILE,
+      LAST_READ_FILE,
+      DAILY_DEVOTIONAL_FILE
+    ];
     for (const fileName of filesToClear) {
       const file = new File(BASE_DIR, fileName);
       if (file.exists) {
         await file.delete();
       }
     }
+    await clearHighlights();
     await clearCache();
   } catch (e) {
     console.error('Error clearing FS data:', e);
@@ -284,21 +513,89 @@ export const clearAllFileSystemData = async () => {
   }
 };
 
+// --- Daily Devotional ---
+export const getDailyDevotional = async () => {
+  try {
+    const file = new File(BASE_DIR, DAILY_DEVOTIONAL_FILE);
+    if (file.exists) {
+      return JSON.parse(await file.text());
+    }
+
+    // Migration
+    const cached = await AsyncStorage.getItem('dailyDevotional');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      await setDailyDevotional(parsed.date, parsed.devotional);
+      await AsyncStorage.removeItem('dailyDevotional');
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// --- Prayer Journal ---
+export const getPrayers = async () => {
+  try {
+    const file = new File(BASE_DIR, PRAYER_JOURNAL_FILE);
+    if (file.exists) {
+      return JSON.parse(await file.text());
+    }
+
+    // Migration
+    const legacy = await AsyncStorage.getItem('prayer_journal');
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      await savePrayers(parsed);
+      await AsyncStorage.removeItem('prayer_journal');
+      return parsed;
+    }
+    return [];
+  } catch (e) {
+    return [];
+  }
+};
+
+export const savePrayers = async (prayers) => {
+  try {
+    const file = new File(BASE_DIR, PRAYER_JOURNAL_FILE);
+    await file.write(JSON.stringify(prayers));
+  } catch (e) {
+    console.error('Error saving prayers to FS:', e);
+  }
+};
+
+export const setDailyDevotional = async (date, devotional) => {
+  try {
+    const file = new File(BASE_DIR, DAILY_DEVOTIONAL_FILE);
+    await file.write(JSON.stringify({ date, devotional }));
+  } catch (e) {
+    console.error('Error saving daily devotional to FS:', e);
+  }
+};
+
 // --- Last Read State ---
 export const setLastReadState = async (state) => {
   try {
-    const file = new File(BASE_DIR, 'last_read.json');
+    const file = new File(BASE_DIR, LAST_READ_FILE);
     await file.write(JSON.stringify(state));
   } catch (e) {
-    console.error('Error saving last read state:', e);
+    console.error('Error saving last read state to FS:', e);
   }
 };
 
 export const getLastReadState = async () => {
   try {
-    const file = new File(BASE_DIR, 'last_read.json');
+    const file = new File(BASE_DIR, LAST_READ_FILE);
     if (file.exists) {
-      return JSON.parse(await file.text());
+      const state = JSON.parse(await file.text());
+      // Validate against current versions
+      const validIds = Object.values(API_CONFIG.BIBLE_API.versions);
+      if (state && state.bibleId && !validIds.includes(state.bibleId)) {
+        return null;
+      }
+      return state;
     }
     return null;
   } catch (e) {
@@ -316,9 +613,11 @@ export default {
   saveLibrary,
   toggleSaveDevotional,
   getHighlights,
+  getHighlightsForBook,
   saveHighlights,
   toggleHighlight,
   applyBulkHighlights,
+  getHighlightStats,
   getCachedData,
   setCachedData,
   getCacheSize,
@@ -328,4 +627,8 @@ export default {
   clearHighlights,
   setLastReadState,
   getLastReadState,
+  getDailyDevotional,
+  setDailyDevotional,
+  getPrayers,
+  savePrayers,
 };

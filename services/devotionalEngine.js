@@ -48,6 +48,8 @@ class DevotionalEngine {
       keyVerse: '',
       content: '',
       crossReferences: [],
+      oldTestamentShadows: '',
+      newTestamentFulfillment: '',
       theologicalInsight: '',
       application: '',
       prayer: '',
@@ -59,27 +61,32 @@ class DevotionalEngine {
 
     lines.forEach(line => {
       const trimmedLine = line.trim();
-      if (!trimmedLine && currentSection !== 'content' && currentSection !== 'application' && currentSection !== 'prayer' && currentSection !== 'theologicalInsight') return;
+      if (!trimmedLine && !['content', 'application', 'prayer', 'theologicalInsight', 'oldTestamentShadows', 'newTestamentFulfillment'].includes(currentSection)) return;
 
       const cleanLine = stripMarkdown(trimmedLine);
+      const upper = cleanLine.toUpperCase().replace(/_/g, ' ');
 
-      if (trimmedLine.toUpperCase().startsWith('TOPIC:')) {
+      if (upper.startsWith('TOPIC')) {
         currentSection = 'topic';
-        sections.topic = stripMarkdown(trimmedLine.replace(/TOPIC:/i, ''));
-      } else if (trimmedLine.toUpperCase().startsWith('KEY_VERSE:')) {
+        sections.topic = cleanLine.replace(/^TOPIC:?\s*/i, '');
+      } else if (upper.startsWith('KEY VERSE')) {
         currentSection = 'keyVerse';
-        sections.keyVerse = stripMarkdown(trimmedLine.replace(/KEY_VERSE:/i, ''));
-      } else if (trimmedLine.toUpperCase().startsWith('CONTENT:')) {
+        sections.keyVerse = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '');
+      } else if (upper.startsWith('CONTENT')) {
         currentSection = 'content';
-      } else if (trimmedLine.toUpperCase().startsWith('CROSS_REFERENCES:')) {
+      } else if (upper.startsWith('OLD TESTAMENT SHADOWS')) {
+        currentSection = 'oldTestamentShadows';
+      } else if (upper.startsWith('NEW TESTAMENT FULFILLMENT')) {
+        currentSection = 'newTestamentFulfillment';
+      } else if (upper.startsWith('CROSS REFERENCES')) {
         currentSection = 'crossReferences';
-      } else if (trimmedLine.toUpperCase().startsWith('THEOLOGICAL_INSIGHT:')) {
+      } else if (upper.startsWith('THEOLOGICAL INSIGHT')) {
         currentSection = 'theologicalInsight';
-      } else if (trimmedLine.toUpperCase().startsWith('APPLICATION:')) {
+      } else if (upper.startsWith('APPLICATION')) {
         currentSection = 'application';
-      } else if (trimmedLine.toUpperCase().startsWith('PRAYER:')) {
+      } else if (upper.startsWith('PRAYER')) {
         currentSection = 'prayer';
-      } else if (trimmedLine.toUpperCase().startsWith('QUESTIONS:')) {
+      } else if (upper.startsWith('QUESTIONS')) {
         currentSection = 'questions';
       } else if (trimmedLine.match(/^[•\-*]/)) {
         if (currentSection === 'crossReferences') {
@@ -97,6 +104,10 @@ class DevotionalEngine {
              return;
           }
           sections.content += (sections.content !== '' ? '\n' : '') + cleanLine;
+        } else if (currentSection === 'oldTestamentShadows') {
+          sections.oldTestamentShadows += (sections.oldTestamentShadows !== '' ? '\n' : '') + cleanLine;
+        } else if (currentSection === 'newTestamentFulfillment') {
+          sections.newTestamentFulfillment += (sections.newTestamentFulfillment !== '' ? '\n' : '') + cleanLine;
         } else if (currentSection === 'theologicalInsight') {
           sections.theologicalInsight += (sections.theologicalInsight !== '' ? '\n' : '') + cleanLine;
         } else if (currentSection === 'application') {
@@ -146,6 +157,7 @@ class DevotionalEngine {
       let keyVerseData = null;
       
       if (parsed.keyVerse && bibleVersionId) {
+        console.log(`Fetching key verse: ${parsed.keyVerse} (${bibleVersionId})`);
         const verseText = await bibleAPIService.getFormattedVerse(
           bibleVersionId,
           parsed.keyVerse
@@ -157,6 +169,8 @@ class DevotionalEngine {
             text: verseText.text || verseText.content,
             copyright: verseText.copyright,
           };
+        } else {
+          console.warn(`Failed to fetch text for key verse: ${parsed.keyVerse}`);
         }
       }
 
@@ -169,10 +183,40 @@ class DevotionalEngine {
         if (refOnly && bibleVersionId) {
           const verseData = await bibleAPIService.getFormattedVerse(bibleVersionId, refOnly);
           if (verseData) {
+            // Clean up explanation by removing leading symbols/colons
+            const rawExp = ref.includes(']') ? ref.split(']').slice(1).join(']') : (ref.includes(':') ? ref.split(':').slice(1).join(':') : ref);
+            let cleanExp = rawExp.replace(/^[:\s\-]+/, '').trim();
+
+            const actualText = (verseData.text || verseData.content || '').trim();
+
+            // Check for redundancy - if explanation is just the verse text repeated
+            const cleanActual = actualText.toLowerCase().replace(/[^\w\s]/g, '').trim();
+            const cleanExpl = cleanExp.toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+            const isRedundant = cleanActual && cleanExpl &&
+              (cleanExpl === cleanActual ||
+               (cleanExpl.length < 100 && cleanActual.includes(cleanExpl)) ||
+               (cleanActual.length > 20 && cleanExpl.includes(cleanActual.substring(0, Math.min(cleanActual.length, 50)))));
+
+            // If explanation starts with the verse text, strip it
+            if (!isRedundant && cleanActual && cleanExpl.startsWith(cleanActual.substring(0, Math.min(cleanActual.length, 20)))) {
+                const delimiters = [' - ', ': ', '; ', ' – ', '. '];
+                for (const d of delimiters) {
+                    if (cleanExp.includes(d)) {
+                        const parts = cleanExp.split(d);
+                        const firstPartClean = parts[0].toLowerCase().replace(/[^\w\s]/g, '').trim();
+                        if (cleanActual.includes(firstPartClean) || firstPartClean.includes(cleanActual.substring(0, 10))) {
+                            cleanExp = parts.slice(1).join(d).trim();
+                            break;
+                        }
+                    }
+                }
+            }
+
             crossRefVerses.push({
               reference: refOnly,
-              text: verseData.text || verseData.content,
-              explanation: ref.includes(']') ? ref.split(']').slice(1).join(']').trim() : (ref.includes(':') ? ref.split(':').slice(1).join(':').trim() : ref),
+              text: actualText,
+              explanation: isRedundant ? "" : cleanExp,
             });
           }
         }
@@ -186,13 +230,16 @@ class DevotionalEngine {
         keyVerse: keyVerseData,
         content: parsed.content,
         theologicalInsight: parsed.theologicalInsight,
+        oldTestamentShadows: parsed.oldTestamentShadows,
+        newTestamentFulfillment: parsed.newTestamentFulfillment,
         crossReferences: crossRefVerses,
         application: parsed.application,
         prayer: parsed.prayer,
         questions: parsed.questions,
         bibleVersion: bibleVersion,
         rawAIResponse: aiContent,
-        type: 'devotional'
+        type: 'devotional',
+        verses: crossRefVerses // Use the rich verse objects instead of just strings
       };
 
       // Final Check: Strip redundant key verse text or reference from the beginning of content
@@ -229,20 +276,6 @@ class DevotionalEngine {
         if (linesRemoved) {
           devotional.content = contentLines.join('\n').trim();
         }
-
-        // One final fuzzy check for the whole verse text if it's still there
-        if (verseText && verseText.length > 10) {
-            const contentNormal = devotional.content.toLowerCase().replace(/[^\w\s]/g, '');
-            if (contentNormal.startsWith(verseText)) {
-                // Find approximate match in original text to preserve formatting
-                const originalVerseStart = devotional.content.toLowerCase().indexOf(devotional.keyVerse.text.toLowerCase().substring(0, 20));
-                if (originalVerseStart !== -1) {
-                    // Try to find the end of the verse in the content
-                    const verseEnd = originalVerseStart + devotional.keyVerse.text.length;
-                    devotional.content = devotional.content.substring(verseEnd).replace(/^[:\s\-"]+/, '').trim();
-                }
-            }
-        }
       }
 
       // Cache the result
@@ -275,21 +308,68 @@ async generateBibleStudy(topic, bibleVersion = 'NKJV') {
     const bibleVersionId = this.getBibleVersionId(bibleVersion);
     
     if (study.keyVerses && study.keyVerses.length > 0 && bibleVersionId) {
+      console.log(`Fetching ${study.keyVerses.length} verses for Bible Study on ${topic}`);
       const verseRefs = study.keyVerses.map(v => v.reference);
       const verseTexts = await bibleAPIService.getMultipleVerses(bibleVersionId, verseRefs);
       
       // Enhance verses with actual text
-      study.keyVerses = study.keyVerses.map((verse, index) => ({
-        ...verse,
-        actualText: verseTexts[index]?.text || verseTexts[index]?.content || null,
-        copyright: verseTexts[index]?.copyright || null,
-      }));
+      study.keyVerses = study.keyVerses.map((verse, index) => {
+        const textData = verseTexts[index];
+        if (!textData || textData.text === 'Content unavailable') {
+          console.warn(`Verse unavailable: ${verse.reference}`);
+        }
+        return {
+          ...verse,
+          actualText: textData?.text || textData?.content || null,
+          copyright: textData?.copyright || null,
+        };
+      });
     }
 
     // Step 4: Generate a unique ID
     study.id = `study_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     study.type = 'study';
-    
+
+    // Map keyVerses to verses for UI consistency
+    study.verses = study.keyVerses.map(v => {
+      const actualText = (v.actualText || '').trim();
+      let context = (v.context || '').trim();
+
+      if (!context) return { reference: v.reference, text: actualText, explanation: "" };
+
+      // Check for redundancy - if context is just repeating the verse text
+      const cleanActual = actualText.toLowerCase().replace(/[^\w\s]/g, '').trim();
+      const cleanContext = context.toLowerCase().replace(/[^\w\s]/g, '').trim();
+
+      // If the context is exactly the same or contained within/contains the verse text significantly
+      const isRedundant = cleanActual && cleanContext &&
+        (cleanContext === cleanActual ||
+         (cleanContext.length < 100 && cleanActual.includes(cleanContext)) ||
+         (cleanActual.length > 20 && cleanContext.includes(cleanActual.substring(0, Math.min(cleanActual.length, 50)))));
+
+      // If context starts with the verse text, strip it
+      if (cleanActual && cleanContext.startsWith(cleanActual.substring(0, Math.min(cleanActual.length, 20)))) {
+          // This is a bit risky but often context is "VERSE_TEXT - EXPLANATION"
+          const delimiters = [' - ', ': ', '; ', ' – '];
+          for (const d of delimiters) {
+              if (context.includes(d)) {
+                  const parts = context.split(d);
+                  const firstPartClean = parts[0].toLowerCase().replace(/[^\w\s]/g, '').trim();
+                  if (cleanActual.includes(firstPartClean) || firstPartClean.includes(cleanActual.substring(0, 10))) {
+                      context = parts.slice(1).join(d).trim();
+                      break;
+                  }
+              }
+          }
+      }
+
+      return {
+        reference: v.reference,
+        text: actualText,
+        explanation: isRedundant ? "" : context
+      };
+    });
+
     // Cache the result
     this.cache.set(cacheKey, study);
     
@@ -338,27 +418,29 @@ parseStudyResponse(aiContent, topic, bibleVersion) {
 
     const cleanLine = stripMarkdown(trimmed);
 
-    // Detect sections (case insensitive)
-    const upper = trimmed.toUpperCase();
-    if (upper.startsWith('TOPIC:')) {
-      study.topic = stripMarkdown(trimmed.replace(/TOPIC:/i, ''));
-    } else if (upper.startsWith('INTRODUCTION:')) {
+    // Detect sections (case insensitive) - check against cleanLine to ignore markdown symbols
+    // Use regex to catch headers even if they have extra text or slightly different punctuation
+    const upper = cleanLine.toUpperCase().replace(/_/g, ' ');
+
+    if (upper.startsWith('TOPIC')) {
+      study.topic = cleanLine.replace(/^TOPIC:?\s*/i, '');
+    } else if (upper.startsWith('INTRODUCTION')) {
       currentSection = 'introduction';
-    } else if (upper.startsWith('KEY_VERSES:')) {
+    } else if (upper.startsWith('KEY VERSES')) {
       currentSection = 'keyVerses';
-    } else if (upper.startsWith('HISTORICAL_CONTEXT:')) {
+    } else if (upper.startsWith('HISTORICAL CONTEXT')) {
       currentSection = 'historicalContext';
-    } else if (upper.startsWith('OLD_TESTAMENT_SHADOWS:')) {
+    } else if (upper.startsWith('OLD TESTAMENT SHADOWS')) {
       currentSection = 'oldTestamentShadows';
-    } else if (upper.startsWith('NEW_TESTAMENT_FULFILLMENT:')) {
+    } else if (upper.startsWith('NEW TESTAMENT FULFILLMENT')) {
       currentSection = 'newTestamentFulfillment';
-    } else if (upper.startsWith('STUDY_NOTES:')) {
+    } else if (upper.startsWith('STUDY NOTES')) {
       currentSection = 'studyNotes';
-    } else if (upper.startsWith('PRACTICAL_APPLICATION:')) {
+    } else if (upper.startsWith('PRACTICAL APPLICATION')) {
       currentSection = 'practicalApplication';
-    } else if (upper.startsWith('DISCUSSION_QUESTIONS:')) {
+    } else if (upper.startsWith('DISCUSSION QUESTIONS')) {
       currentSection = 'discussionQuestions';
-    } else if (upper.startsWith('PRAYER_POINTS:')) {
+    } else if (upper.startsWith('PRAYER POINTS')) {
       currentSection = 'prayerPoints';
     } else {
       // Add content to current section
@@ -368,12 +450,17 @@ parseStudyResponse(aiContent, topic, bibleVersion) {
           break;
         case 'keyVerses':
           if (trimmed.match(/^[•\-*]/)) {
-            const refMatch = trimmed.match(/([A-Za-z0-9\s]+\d+:\d+(?:-\d+)?)/);
-            const contextMatch = trimmed.split(':').slice(1).join(':');
+            const refMatch = trimmed.match(/((?:\d\s*)?[A-Za-z]+\s+\d+:\d+(?:-\d+)?)/);
             if (refMatch) {
+              const reference = refMatch[0].trim();
+              // Find the part after the reference
+              const refIndex = trimmed.indexOf(reference);
+              const remaining = trimmed.substring(refIndex + reference.length).trim();
+              const explanation = remaining.replace(/^[:\s\-]+/, '');
+
               study.keyVerses.push({
-                reference: stripMarkdown(refMatch[0]),
-                context: stripMarkdown(contextMatch) || '',
+                reference: stripMarkdown(reference),
+                context: stripMarkdown(explanation) || '',
               });
             }
           }
@@ -415,7 +502,7 @@ parseStudyResponse(aiContent, topic, bibleVersion) {
   // Helper to get Bible version ID
   getBibleVersionId(versionName) {
     return API_CONFIG.BIBLE_API.versions[versionName] || 
-           API_CONFIG.BIBLE_API.versions['NKJV'];
+           API_CONFIG.BIBLE_API.versions['NKJV']; // Default to NKJV
   }
 
   // Get version name from ID

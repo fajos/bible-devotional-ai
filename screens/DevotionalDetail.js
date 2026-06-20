@@ -1,5 +1,4 @@
 // screens/DevotionalDetail.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
     Alert,
@@ -10,6 +9,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import Store from '../services/store';
 
 export default function DevotionalDetail({ route, navigation }) {
   const { devotional } = route.params;
@@ -21,8 +21,7 @@ export default function DevotionalDetail({ route, navigation }) {
 
   const checkIfSaved = async () => {
     try {
-      const saved = await AsyncStorage.getItem('savedDevotionals');
-      const savedList = saved ? JSON.parse(saved) : [];
+      const savedList = await Store.getSavedDevotionals();
       setIsSaved(savedList.some(item => item.id === devotional.id));
     } catch (error) {
       console.error('Error checking saved:', error);
@@ -31,22 +30,12 @@ export default function DevotionalDetail({ route, navigation }) {
 
   const saveDevotional = async () => {
     try {
-      const saved = await AsyncStorage.getItem('savedDevotionals');
-      const savedList = saved ? JSON.parse(saved) : [];
-      
-      if (isSaved) {
-        // Remove from saved
-        const updatedList = savedList.filter(item => item.id !== devotional.id);
-        await AsyncStorage.setItem('savedDevotionals', JSON.stringify(updatedList));
-        setIsSaved(false);
-        Alert.alert('Removed', 'Devotional removed from library');
-      } else {
-        // Add to saved
-        savedList.push(devotional);
-        await AsyncStorage.setItem('savedDevotionals', JSON.stringify(savedList));
-        setIsSaved(true);
-        Alert.alert('Saved', 'Devotional added to your library');
-      }
+      const saved = await Store.toggleSaveDevotional(devotional);
+      setIsSaved(saved);
+      Alert.alert(
+        saved ? 'Saved' : 'Removed',
+        saved ? 'Devotional added to your library' : 'Devotional removed from library'
+      );
     } catch (error) {
       Alert.alert('Error', 'Failed to save devotional');
     }
@@ -115,10 +104,76 @@ export default function DevotionalDetail({ route, navigation }) {
         </View>
       </View>
 
+      {devotional.oldTestamentShadows && (
+        <View style={styles.theologySection}>
+          <Text style={styles.sectionTitle}>Old Testament Shadows</Text>
+          <View style={styles.contentBox}>
+            <Text style={styles.contentText}>{devotional.oldTestamentShadows}</Text>
+          </View>
+        </View>
+      )}
+
+      {devotional.newTestamentFulfillment && (
+        <View style={styles.theologySection}>
+          <Text style={styles.sectionTitle}>New Testament Fulfillment</Text>
+          <View style={styles.contentBox}>
+            <Text style={styles.contentText}>{devotional.newTestamentFulfillment}</Text>
+          </View>
+        </View>
+      )}
+
+      {devotional.theologicalInsight && (
+        <View style={styles.theologySection}>
+          <Text style={styles.sectionTitle}>Theological Insight</Text>
+          <View style={styles.contentBox}>
+            <Text style={styles.contentText}>{devotional.theologicalInsight}</Text>
+          </View>
+        </View>
+      )}
+
       {devotional.crossReferences && (
         <View style={styles.crossReferences}>
           <Text style={styles.sectionTitle}>Cross References</Text>
-          <Text style={styles.contentText}>{devotional.crossReferences}</Text>
+          {Array.isArray(devotional.crossReferences) ? (
+            devotional.crossReferences.map((ref, index) => (
+              <View key={index} style={styles.crossRefBox}>
+                <Text style={styles.crossRefRef}>{ref.reference}</Text>
+                <Text style={styles.crossRefText}>{ref.text}</Text>
+                {ref.explanation && <Text style={styles.crossRefExpl}>{ref.explanation}</Text>}
+              </View>
+            ))
+          ) : (
+            <Text style={styles.contentText}>{devotional.crossReferences}</Text>
+          )}
+        </View>
+      )}
+
+      {devotional.application && (
+        <View style={styles.applicationSection}>
+          <Text style={styles.sectionTitle}>Application</Text>
+          <View style={styles.contentBox}>
+            <Text style={styles.contentText}>{devotional.application}</Text>
+          </View>
+        </View>
+      )}
+
+      {devotional.prayer && (
+        <View style={styles.prayerSection}>
+          <Text style={styles.sectionTitle}>Prayer</Text>
+          <View style={styles.contentBox}>
+            <Text style={[styles.contentText, styles.prayerText]}>{devotional.prayer}</Text>
+          </View>
+        </View>
+      )}
+
+      {devotional.questions && devotional.questions.length > 0 && (
+        <View style={styles.questionsSection}>
+          <Text style={styles.sectionTitle}>Reflection Questions</Text>
+          <View style={styles.contentBox}>
+            {devotional.questions.map((q, i) => (
+              <Text key={i} style={styles.questionText}>{i + 1}. {q}</Text>
+            ))}
+          </View>
         </View>
       )}
 
@@ -208,11 +263,54 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: '#333',
   },
+  theologySection: {
+    padding: 15,
+  },
   crossReferences: {
     padding: 15,
     backgroundColor: '#fff',
     margin: 15,
     borderRadius: 10,
+  },
+  crossRefBox: {
+    marginTop: 15,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4A90E2',
+    paddingLeft: 10,
+  },
+  crossRefRef: {
+    fontWeight: '700',
+    color: '#4A90E2',
+    marginBottom: 5,
+  },
+  crossRefText: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    color: '#555',
+  },
+  crossRefExpl: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
+  },
+  applicationSection: {
+    padding: 15,
+  },
+  prayerSection: {
+    padding: 15,
+  },
+  prayerText: {
+    fontStyle: 'italic',
+    color: '#555',
+  },
+  questionsSection: {
+    padding: 15,
+  },
+  questionText: {
+    fontSize: 15,
+    marginBottom: 10,
+    color: '#333',
+    lineHeight: 22,
   },
   saveButton: {
     backgroundColor: '#4A90E2',

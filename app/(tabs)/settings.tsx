@@ -1,28 +1,78 @@
-// app/(tabs)/settings.tsx
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Platform,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { clearAllFileSystemData, clearCache, clearHighlights, formatSize, getCacheSize } from '../../services/store';
+import notifications, { REMINDER_TYPES } from '../../services/notifications';
 
 export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [clearingCache, setClearingCache] = useState(false);
   const [cacheSize, setCacheSize] = useState('0 B');
+  const [devotionalReminder, setDevotionalReminder] = useState(false);
+  const [reminderTime, setReminderTime] = useState(new Date());
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     updateCacheSize();
+    loadNotificationSettings();
     setLoading(false);
   }, []);
+
+  const loadNotificationSettings = async () => {
+    const settings = await notifications.getReminderSettings();
+    if (settings[REMINDER_TYPES.DEVOTIONAL]) {
+      setDevotionalReminder(settings[REMINDER_TYPES.DEVOTIONAL].enabled);
+      if (settings[REMINDER_TYPES.DEVOTIONAL].hour !== undefined) {
+        const time = new Date();
+        time.setHours(settings[REMINDER_TYPES.DEVOTIONAL].hour);
+        time.setMinutes(settings[REMINDER_TYPES.DEVOTIONAL].minute || 0);
+        setReminderTime(time);
+      }
+    }
+  };
+
+  const toggleDevotionalReminder = async (value: boolean) => {
+    if (value) {
+      setShowPicker(true);
+    } else {
+      await notifications.cancelReminder(REMINDER_TYPES.DEVOTIONAL);
+      setDevotionalReminder(false);
+    }
+  };
+
+  const onTimeChange = async (event: DateTimePickerEvent, selectedDate?: Date) => {
+    setShowPicker(Platform.OS === 'ios');
+
+    if (event.type === 'set' && selectedDate) {
+      setReminderTime(selectedDate);
+      const success = await notifications.scheduleDailyReminder(
+        REMINDER_TYPES.DEVOTIONAL,
+        selectedDate.getHours(),
+        selectedDate.getMinutes()
+      );
+      if (success) {
+        setDevotionalReminder(true);
+      } else {
+        setDevotionalReminder(false);
+        Alert.alert('Permission Denied', 'Please enable notifications in settings.');
+      }
+    } else if (event.type === 'dismissed' && !devotionalReminder) {
+      setDevotionalReminder(false);
+    }
+  };
 
   const updateCacheSize = async () => {
     const size = await getCacheSize();
@@ -114,6 +164,42 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container}>
+      {/* Notifications Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>NOTIFICATIONS</Text>
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Daily Devotional Reminder</Text>
+            <Text style={styles.settingDescription}>Get notified to start your daily study</Text>
+          </View>
+          <View style={styles.switchContainer}>
+            {devotionalReminder && (
+              <TouchableOpacity onPress={() => setShowPicker(true)} style={styles.timeDisplay}>
+                <Text style={styles.timeText}>
+                  {reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <Switch
+              value={devotionalReminder}
+              onValueChange={toggleDevotionalReminder}
+              trackColor={{ false: '#D1D1D1', true: COLORS.gold }}
+              thumbColor={COLORS.white}
+            />
+          </View>
+        </View>
+
+        {showPicker && (
+          <DateTimePicker
+            value={reminderTime}
+            mode="time"
+            is24Hour={false}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onTimeChange}
+          />
+        )}
+      </View>
+
       {/* Data Management */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>DATA MANAGEMENT</Text>
@@ -173,7 +259,7 @@ export default function SettingsScreen() {
       {/* Footer */}
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          "Your word is a lamp to my feet and a light to my path."
+          &quot;Your word is a lamp to my feet and a light to my path.&quot;
         </Text>
         <Text style={styles.footerReference}>Psalm 119:105</Text>
       </View>
@@ -220,6 +306,24 @@ const styles = StyleSheet.create({
     fontSize: FONTS.ui.size.tiny,
     color: COLORS.gray,
     marginTop: 2,
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timeDisplay: {
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+  },
+  timeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.goldDark,
   },
   dangerButton: {
     flexDirection: 'row',

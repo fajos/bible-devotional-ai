@@ -1,59 +1,109 @@
 // app/(tabs)/index.js
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { JSX, useEffect, useState, type ReactElement } from 'react';
 import {
-    ActivityIndicator,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    Animated,
-    Dimensions,
-    Share
+  ActivityIndicator,
+  Animated,
+  Dimensions,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import bibleAPIService from '../../services/bibleApi';
 import { generateDailyDevotional } from '../../services/devotionalEngine';
 import * as store from '../../services/store';
 
 const { width } = Dimensions.get('window');
 
-const MOODS = [
+const MOODS: Mood[] = [
   { id: 'anxious', label: 'Anxious', icon: 'leaf-outline', color: '#4A90E2', verse: "Peace I leave with you; my peace I give you.", ref: "John 14:27" },
   { id: 'tired', label: 'Tired', icon: 'bed-outline', color: '#F5A623', verse: "Come to me, all you who are weary and burdened.", ref: "Matthew 11:28" },
   { id: 'joyful', label: 'Joyful', icon: 'sunny-outline', color: '#7ED321', verse: "The joy of the Lord is your strength.", ref: "Nehemiah 8:10" },
   { id: 'lost', label: 'Lost', icon: 'compass-outline', color: '#BD10E0', verse: "Your word is a lamp for my feet, a light on my path.", ref: "Psalm 119:105" },
 ];
 
-const DAILY_VERSES = [
-  { text: "For I know the plans I have for you,” declares the Lord, “plans to prosper you and not to harm you, plans to give you hope and a future.", ref: "Jeremiah 29:11", version: "KJV" },
-  { text: "The Lord is my shepherd; I shall not want.", ref: "Psalm 23:1", version: "KJV" },
-  { text: "I can do all things through Christ which strengtheneth me.", ref: "Philippians 4:13", version: "KJV" },
-  { text: "And we know that all things work together for good to them that love God, to them who are the called according to his purpose.", ref: "Romans 8:28", version: "KJV" },
-  { text: "Trust in the Lord with all thine heart; and lean not unto thine own theological understanding. In all thy ways acknowledge him, and he shall direct thy paths.", ref: "Proverbs 3:5-6", version: "KJV" },
-  { text: "But they that wait upon the Lord shall renew their strength; they shall mount up with wings as eagles; they shall run, and not be weary; and they shall walk, and not faint.", ref: "Isaiah 40:31", version: "KJV" },
-  { text: "Be strong and of a good courage, fear not, nor be afraid of them: for the Lord thy God, he it is that doth go with thee; he will not fail thee, nor forsake thee.", ref: "Deuteronomy 31:6", version: "KJV" }
+interface DailyVerse {
+  text: string;
+  ref: string;
+  version: string;
+}
+
+const DAILY_VERSES: DailyVerse[] = [
+  { text: "For I know the thoughts that I think toward you, says the LORD, thoughts of peace and not of evil, to give you a future and a hope.", ref: "Jeremiah 29:11", version: "NKJV" },
+  { text: "The LORD is my shepherd; I shall not want.", ref: "Psalm 23:1", version: "NKJV" },
+  { text: "I can do all things through Christ who strengthens me.", ref: "Philippians 4:13", version: "NKJV" },
+  { text: "And we know that all things work together for good to those who love God, to those who are the called according to His purpose.", ref: "Romans 8:28", version: "NKJV" },
+  { text: "Trust in the LORD with all your heart, And lean not on your own understanding; In all your ways acknowledge Him, And He shall direct your paths.", ref: "Proverbs 3:5-6", version: "NKJV" },
+  { text: "But those who wait on the LORD Shall renew their strength; They shall mount up with wings like eagles, They shall run and not be weary, They shall walk and not faint.", ref: "Isaiah 40:31", version: "NKJV" },
+  { text: "Be strong and of good courage, do not fear nor be afraid of them; for the LORD your God, He is the One who goes with you. He will not leave you nor forsake you.", ref: "Deuteronomy 31:6", version: "NKJV" }
 ];
 
-export default function DailyDevotionalScreen() {
-  const [devotional, setDevotional] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Opening the Word...');
-  const [selectedMood, setSelectedMood] = useState(null);
-  const [votd, setVotd] = useState(DAILY_VERSES[0]);
+type Mood = {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  verse: string;
+  ref: string;
+};
+
+interface KeyVerse {
+  text: string;
+  reference: string;
+}
+
+interface Devotional {
+  id?: string;
+  topic: string;
+  keyVerse?: KeyVerse;
+  bibleVersion?: string;
+  content: string;
+  prayer?: string;
+}
+
+export default function DailyDevotionalScreen(): JSX.Element {
+  const [devotional, setDevotional] = useState<Devotional | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('Opening the Word...');
+  const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
+  const [votd, setVotd] = useState<DailyVerse>(DAILY_VERSES[0]);
   const fadeAnim = useState(new Animated.Value(0))[0];
   const router = useRouter();
 
   useEffect(() => {
     // Determine Verse of the Day based on current date
-    const today = new Date();
-    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
-    const index = dayOfYear % DAILY_VERSES.length;
-    setVotd(DAILY_VERSES[index]);
+    const updateVotd = async () => {
+      const today = new Date();
+      const dayOfYear = Math.floor((today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
+      const index = dayOfYear % DAILY_VERSES.length;
+      const baseVerse = DAILY_VERSES[index];
+
+      try {
+        // Fetch the verse in NKJV from Bolls API
+        const dynamicVerse = await bibleAPIService.getFormattedVerse('NKJV', baseVerse.ref);
+        if (dynamicVerse) {
+          setVotd({
+            text: dynamicVerse.content,
+            ref: dynamicVerse.reference,
+            version: 'NKJV'
+          });
+        } else {
+          setVotd(baseVerse);
+        }
+      } catch (error) {
+        console.error('Error fetching VOTD:', error);
+        setVotd(baseVerse);
+      }
+    };
+
+    updateVotd();
   }, []);
 
   useEffect(() => {
@@ -91,33 +141,49 @@ export default function DailyDevotionalScreen() {
     }
   }, [loading]);
 
-  const loadCachedDevotional = async () => {
+  const loadCachedDevotional = async (): Promise<void> => {
     try {
       const today = new Date().toDateString();
       const cachedData = await store.getCachedData(`daily_${today}`);
       
-      if (cachedData) {
+      // Ensure we only use cached data if it's the correct version (NKJV)
+      if (cachedData && cachedData.bibleVersion === 'NKJV') {
         setDevotional(cachedData);
         setLoading(false);
         return;
+      } else {
+        // Fallback to daily devotional file if no cache entry exists for today's version
+        const dailyFile = await store.getDailyDevotional();
+        if (dailyFile && dailyFile.date === today && dailyFile.devotional?.bibleVersion === 'NKJV') {
+          setDevotional(dailyFile.devotional);
+          setLoading(false);
+          return;
+        }
       }
     } catch (error) {
-      console.log('No cache found, generating new devotional');
+      console.log('No valid NKJV cache found, generating new devotional');
     }
     
     loadDevotional();
   };
 
-  const loadDevotional = async () => {
+  const loadDevotional = async (): Promise<void> => {
     setLoading(true);
     try {
-      // Generate devotional with KJV as default for verse text to save API credits
-      const result = await generateDailyDevotional('KJV');
+      // Generate devotional with NKJV as default (now free via bolls.life)
+      const result = await generateDailyDevotional('NKJV');
+
+      // Ensure the result has the ID set correctly for routing
+      if (!result.id) {
+        result.id = `daily_${new Date().toDateString().replace(/\s/g, '_')}`;
+      }
+
       setDevotional(result);
       
       // Cache for today (no version in key since it's one per day)
       const today = new Date().toDateString();
       await store.setCachedData(`daily_${today}`, result);
+      await store.setDailyDevotional(today, result);
     } catch (error) {
       console.error('Failed to load devotional:', error);
       alert('Unable to generate devotional. Please check your internet connection and try again.');
@@ -127,12 +193,12 @@ export default function DailyDevotionalScreen() {
     }
   };
 
-  const onRefresh = () => {
+  const onRefresh = (): void => {
     setRefreshing(true);
     loadDevotional();
   };
 
-  const handleShareVerse = async (verse, ref, version) => {
+  const handleShareVerse = async (verse: string, ref: string, version: string): Promise<void> => {
     try {
       await Share.share({
         message: `"${verse}" - ${ref} (${version})\n\nShared via Bible Devotional AI`,
@@ -205,7 +271,7 @@ export default function DailyDevotionalScreen() {
                   <View style={styles.verseTextContainer}>
                     <View style={styles.verseRefRow}>
                       <Text style={styles.verseReference}>{devotional.keyVerse.reference}</Text>
-                      <Text style={styles.versionTag}>{devotional.bibleVersion || 'KJV'}</Text>
+                      <Text style={styles.versionTag}>{devotional.bibleVersion || 'NKJV'}</Text>
                     </View>
                     <Text style={styles.verseText}>"{devotional.keyVerse.text}"</Text>
                   </View>
@@ -241,11 +307,11 @@ export default function DailyDevotionalScreen() {
           <Text style={styles.actionText}>My Library</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton} onPress={onRefresh}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/search?mode=plan')}>
           <View style={styles.actionIconContainer}>
-            <Ionicons name="refresh" size={24} color={COLORS.gold} />
+            <Ionicons name="calendar" size={24} color={COLORS.gold} />
           </View>
-          <Text style={styles.actionText}>New Devotional</Text>
+          <Text style={styles.actionText}>Reading Plan</Text>
         </TouchableOpacity>
       </View>
 
@@ -310,7 +376,7 @@ export default function DailyDevotionalScreen() {
 
         {selectedMood && (
           <Animated.View style={[styles.moodInspiration, { opacity: fadeAnim }]}>
-            <Ionicons name="quote" size={24} color={selectedMood.color} style={styles.quoteIcon} />
+            <Ionicons name="quote-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
             <Text style={styles.moodVerse}>{selectedMood.verse}</Text>
             <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
             <TouchableOpacity

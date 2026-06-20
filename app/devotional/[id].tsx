@@ -1,11 +1,14 @@
-// app/devotional/[id].js
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import * as Sharing from 'expo-sharing';
+import React, { JSX, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
+  Modal,
   ScrollView,
   Share,
   StyleSheet,
@@ -14,31 +17,108 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ViewShot from 'react-native-view-shot';
+import { BACKGROUND_OPTIONS } from '../../constants/sharing';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import * as store from '../../services/store';
 
-export default function DevotionalDetailScreen() {
-  const { id } = useLocalSearchParams();
+const { width } = Dimensions.get('window');
+
+interface KeyVerse {
+  reference: string;
+  text: string;
+}
+
+interface VerseItem {
+  reference: string;
+  text?: string;
+  explanation?: string;
+}
+
+interface Devotional {
+  id: string;
+  date: string;
+  topic?: string;
+  keyVerse?: KeyVerse | null;
+  content?: string;
+  historicalContext?: string;
+  theologicalInsight?: string;
+  oldTestamentShadows?: string;
+  newTestamentFulfillment?: string;
+  crossReferences: string[];
+  application?: string;
+  prayer?: string;
+  questions?: string[];
+  bibleVersion?: string;
+  verses: VerseItem[];
+  type?: string;
+}
+
+interface StudyKeyVerse {
+  reference: string;
+  actualText?: string;
+  context?: string;
+}
+
+interface StudyData {
+  id: string;
+  type?: string;
+  date?: string;
+  topic?: string;
+  keyVerses?: StudyKeyVerse[];
+  studyNotes?: string;
+  introduction?: string;
+  rawContent?: string;
+  historicalContext?: string;
+  theologicalInsight?: string;
+  oldTestamentShadows?: string;
+  oldTestamentRefs?: string;
+  newTestamentFulfillment?: string;
+  newTestamentRefs?: string;
+  crossReferences?: string[];
+  practicalApplication?: string;
+  application?: string;
+  prayerPoints?: string[];
+  prayer?: string;
+  discussionQuestions?: string[];
+  bibleVersion?: string;
+  verses?: VerseItem[];
+}
+
+type BackgroundOption = typeof BACKGROUND_OPTIONS[number];
+
+type DevotionalSource = Devotional | StudyData;
+
+export default function DevotionalDetailScreen(): JSX.Element {
+  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [devotional, setDevotional] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isSaved, setIsSaved] = useState(false);
-  const [showFullContent, setShowFullContent] = useState(false);
+  const [devotional, setDevotional] = useState<Devotional | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isSaved, setIsSaved] = useState<boolean>(false);
+  const [showFullContent, setShowFullContent] = useState<boolean>(false);
+  const viewShotRef = useRef<React.ElementRef<typeof ViewShot> | null>(null);
+
+  const [selectedBackground, setSelectedBackground] = useState<BackgroundOption>(BACKGROUND_OPTIONS[0]);
+  const [shareModalVisible, setShareModalVisible] = useState<boolean>(false);
+
+  const isLightBg: boolean = selectedBackground.id === 'parchment';
+  const textColor: string = isLightBg ? COLORS.primary : COLORS.white;
+  const goldColor: string = isLightBg ? COLORS.goldDark : COLORS.gold;
 
   useEffect(() => {
     loadDevotional();
   }, [id]);
 
   // Format study data to match devotional display format
-const adaptStudyToDevotional = (study) => {
+const adaptStudyToDevotional = (study: StudyData): Devotional => {
   return {
     id: study.id,
     date: study.date || new Date().toISOString(),
     topic: study.topic,
     keyVerse: study.keyVerses && study.keyVerses[0] ? {
       reference: study.keyVerses[0].reference,
-      text: study.keyVerses[0].actualText || study.keyVerses[0].context,
+      text: study.keyVerses[0].actualText || study.keyVerses[0].context || '',
     } : null,
     content: study.studyNotes || study.introduction || study.rawContent,
     historicalContext: study.historicalContext,
@@ -50,40 +130,57 @@ const adaptStudyToDevotional = (study) => {
     prayer: study.prayerPoints?.join('\n') || study.prayer,
     questions: study.discussionQuestions,
     bibleVersion: study.bibleVersion,
+    verses: study.verses || [],
   };
 };
 
-const loadDevotional = async () => {
+const isStudyData = (data: DevotionalSource): data is StudyData => {
+  return data.type === 'study' ||
+    'keyVerses' in data ||
+    'studyNotes' in data ||
+    'discussionQuestions' in data ||
+    'prayerPoints' in data;
+};
+
+const resolveDevotional = (data: DevotionalSource): Devotional => {
+  return isStudyData(data) ? adaptStudyToDevotional(data) : data;
+};
+
+const loadDevotional = async (): Promise<void> => {
   try {
     // First, try to get from the in-memory store (most recent)
-    const storedData = store.getStoredDevotional();
+    let storedData: DevotionalSource | null = store.getStoredDevotional();
     
     if (storedData && storedData.id === id) {
-      setDevotional(storedData);
-      checkIfSaved(storedData.id);
+      const devotionalData = resolveDevotional(storedData);
+      setDevotional(devotionalData);
+      checkIfSaved(devotionalData.id);
       setLoading(false);
       return;
     }
 
     // If not in store, check today's cached devotional
-    const today = new Date().toDateString();
-    const cachedData = await store.getCachedData(`daily_${today}`);
+    const today: string = new Date().toDateString();
+    let cachedData: DevotionalSource | null = await store.getCachedData(`daily_${today}`);
     
     if (cachedData) {
       if (cachedData.id === id) {
-        setDevotional(cachedData);
-        checkIfSaved(cachedData.id);
+        // Ensure we pass a Devotional to state setter
+        const devotionalData = resolveDevotional(cachedData);
+        setDevotional(devotionalData);
+        checkIfSaved(devotionalData.id);
         setLoading(false);
         return;
       }
     }
 
     // Check saved devotionals in library
-    const saved = await store.getSavedDevotionals();
+    const saved: DevotionalSource[] = await store.getSavedDevotionals();
     if (saved && saved.length > 0) {
-      const found = saved.find(item => item.id === id);
+      let found: DevotionalSource | undefined = saved.find(item => item.id === id);
       if (found) {
-        setDevotional(found);
+        const devotionalData = resolveDevotional(found);
+        setDevotional(devotionalData);
         setIsSaved(true);
         setLoading(false);
         return;
@@ -103,18 +200,19 @@ const loadDevotional = async () => {
   }
 };
 
-  const checkIfSaved = async (devotionalId) => {
+  const checkIfSaved = async (devotionalId: string): Promise<void> => {
     try {
-      const saved = await store.getSavedDevotionals();
+      const saved: DevotionalSource[] = await store.getSavedDevotionals();
       setIsSaved(saved.some(item => item.id === devotionalId));
     } catch (error) {
       console.error('Error checking saved:', error);
     }
   };
 
-  const toggleSave = async () => {
+  const toggleSave = async (): Promise<void> => {
     if (!devotional) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const newSavedState = await store.toggleSaveDevotional(devotional);
       setIsSaved(newSavedState);
@@ -128,13 +226,13 @@ const loadDevotional = async () => {
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = async (): Promise<void> => {
     if (!devotional) return;
 
     try {
-      const version = devotional.bibleVersion || 'KJV';
+      const version: string = devotional.bibleVersion || 'KJV';
 
-      let shareContent = `📖 STUDY: ${devotional.topic}\n`;
+      let shareContent: string = `📖 STUDY: ${devotional.topic}\n`;
       if (devotional.date) {
         shareContent += `${new Date(devotional.date).toLocaleDateString()}\n`;
       }
@@ -145,32 +243,8 @@ const loadDevotional = async () => {
         shareContent += `"${devotional.keyVerse.text}"\n\n`;
       }
 
-      if (devotional.historicalContext) {
-        shareContent += `📜 HISTORICAL CONTEXT\n${devotional.historicalContext}\n\n`;
-      }
-
-      if (devotional.theologicalInsight) {
-        shareContent += `💡 THEOLOGICAL INSIGHT\n${devotional.theologicalInsight}\n\n`;
-      }
-
-      if (devotional.content) {
-        shareContent += `📝 EXEGESIS & NOTES\n${devotional.content}\n\n`;
-      }
-
-      if (devotional.oldTestamentShadows) {
-        shareContent += `🔗 OT SHADOW\n${devotional.oldTestamentShadows}\n\n`;
-      }
-
-      if (devotional.newTestamentFulfillment) {
-        shareContent += `✨ NT FULFILLMENT\n${devotional.newTestamentFulfillment}\n\n`;
-      }
-
       if (devotional.application) {
         shareContent += `🌱 LIFE APPLICATION\n${devotional.application}\n\n`;
-      }
-
-      if (devotional.prayer) {
-        shareContent += `🙏 PRAYER\n${devotional.prayer}\n\n`;
       }
 
       shareContent += `Generated by Bible Devotional AI`;
@@ -181,6 +255,23 @@ const loadDevotional = async () => {
       });
     } catch (error) {
       console.error('Share error:', error);
+    }
+  };
+
+  const captureAndShareImage = async (): Promise<void> => {
+    try {
+      if (viewShotRef.current) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        // Delay to ensure rendering
+        setTimeout(async () => {
+          // @ts-ignore
+          const uri: string = await viewShotRef.current.capture();
+          await Sharing.shareAsync(uri);
+        }, 200);
+      }
+    } catch (error) {
+      console.error('Capture error:', error);
+      Alert.alert('Error', 'Failed to generate share image.');
     }
   };
 
@@ -206,15 +297,6 @@ if (!devotional) {
     </View>
   );
 }
-
-// Debug: Show what data we have
-console.log('Rendering devotional:', {
-  id: devotional.id,
-  topic: devotional.topic,
-  hasContent: !!devotional.content,
-  hasKeyVerse: !!devotional.keyVerse,
-  contentLength: devotional.content?.length,
-});
 
 return (
   <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -260,9 +342,57 @@ return (
 
       <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
         <Ionicons name="share-outline" size={20} color={COLORS.gold} />
-        <Text style={styles.actionButtonText}>Share</Text>
+        <Text style={styles.actionButtonText}>Text</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.actionButton} onPress={() => setShareModalVisible(true)}>
+        <Ionicons name="image-outline" size={20} color={COLORS.gold} />
+        <Text style={styles.actionButtonText}>Image</Text>
       </TouchableOpacity>
     </View>
+
+    {/* Shareable Card (Hidden or just for capture) */}
+    <ViewShot
+      ref={viewShotRef}
+      options={{ format: 'png', quality: 1.0 }}
+      style={styles.shareCardContainer}
+    >
+      <View style={[styles.shareCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+        {selectedBackground.type === 'image' && (
+          <Image
+            source={{ uri: selectedBackground.url }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+          />
+        )}
+        <View style={[
+          styles.shareCardBorder,
+          { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
+        ]}>
+          <Ionicons name="chatbox-ellipses" size={60} color={isLightBg ? 'rgba(0,0,0,0.1)' : 'rgba(212, 175, 55, 0.3)'} style={styles.quoteIcon} />
+
+          <View style={styles.shareCardBody}>
+            <Text style={[styles.shareCardText, { color: textColor }]}>
+              {devotional.keyVerse?.text}
+            </Text>
+
+            <View style={[styles.shareCardDivider, { backgroundColor: goldColor }]} />
+
+            <Text style={[styles.shareCardReference, { color: goldColor }]}>
+              {devotional.keyVerse?.reference}
+            </Text>
+            <Text style={[styles.shareCardVersion, { color: isLightBg ? 'rgba(0,0,0,0.5)' : 'rgba(255, 255, 255, 0.5)' }]}>
+              {devotional.bibleVersion || 'NKJV'}
+            </Text>
+          </View>
+
+          <View style={styles.shareCardFooter}>
+            <Ionicons name="sparkles" size={24} color={goldColor} />
+            <Text style={[styles.shareCardAppName, { color: isLightBg ? 'rgba(0,0,0,0.3)' : 'rgba(212, 175, 55, 0.7)' }]}>BIBLE DEVOTIONAL AI</Text>
+          </View>
+        </View>
+      </View>
+    </ViewShot>
 
     {/* Key Verse - if exists */}
     {devotional.keyVerse && devotional.keyVerse.reference && (
@@ -273,12 +403,17 @@ return (
         </View>
         <TouchableOpacity
           style={styles.keyVerseCard}
-          onPress={() => router.push(`/verse-compare/${encodeURIComponent(devotional.keyVerse.reference)}`)}
+          onPress={() => {
+            const reference = devotional.keyVerse?.reference;
+            if (reference) {
+              router.push(`/verse-compare/${encodeURIComponent(reference)}`);
+            }
+          }}
         >
           <View style={styles.keyVerseRefRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Text style={styles.keyVerseReference}>
-                {devotional.keyVerse.reference}
+                {devotional.keyVerse?.reference}
               </Text>
               <Text style={styles.versionTagSmall}>
                 ({devotional.bibleVersion || 'KJV'})
@@ -290,7 +425,11 @@ return (
             </View>
           </View>
           {devotional.keyVerse.text ? (
-            <Text style={styles.keyVerseText}>
+            <Text
+              style={styles.keyVerseText}
+              numberOfLines={6}
+              ellipsizeMode="tail"
+            >
               "{devotional.keyVerse.text}"
             </Text>
           ) : (
@@ -388,7 +527,7 @@ return (
                   "{verse.text}"
                 </Text>
               )}
-              {verse.explanation && (
+              {verse.explanation && verse.explanation !== verse.text && (
                 <Text style={styles.crossRefExplanation}>{verse.explanation}</Text>
               )}
             </View>
@@ -457,6 +596,86 @@ return (
         <Text style={styles.generateNewText}>Search New Topic</Text>
       </TouchableOpacity>
     </View>
+
+    {/* Share Modal */}
+    <Modal
+      visible={shareModalVisible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setShareModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { height: '80%' }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Share Verse Image</Text>
+            <TouchableOpacity onPress={() => setShareModalVisible(false)}>
+              <Ionicons name="close" size={24} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={styles.sharePreviewContainer}>
+              <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+                {selectedBackground.type === 'image' && (
+                  <Image
+                    source={{ uri: selectedBackground.url }}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                  />
+                )}
+                <View style={[
+                  styles.sharePreviewCardBorder,
+                  { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
+                ]}>
+                  <Text style={[styles.sharePreviewText, { color: textColor }]} numberOfLines={6}>
+                    {devotional.keyVerse?.text}
+                  </Text>
+                  <Text style={[styles.sharePreviewRef, { color: goldColor }]}>
+                    {devotional.keyVerse?.reference}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.sectionLabel}>Select Background</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.bgOptionsScroll}
+            >
+              {BACKGROUND_OPTIONS.map((bg) => (
+                <TouchableOpacity
+                  key={bg.id}
+                  style={[
+                    styles.bgOptionCard,
+                    selectedBackground.id === bg.id && styles.bgOptionCardActive
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSelectedBackground(bg);
+                  }}
+                >
+                  {bg.type === 'image' ? (
+                    <Image source={{ uri: bg.url }} style={styles.bgOptionThumb} />
+                  ) : (
+                    <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
+                  )}
+                  <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.confirmShareButton}
+              onPress={captureAndShareImage}
+            >
+              <Ionicons name="share-social" size={22} color={COLORS.white} />
+              <Text style={styles.confirmShareText}>Share Now</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   </ScrollView>
 );
 }
@@ -643,6 +862,12 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontStyle: 'italic',
     lineHeight: 30,
+  },
+  keyVerseTextLoading: {
+    fontSize: FONTS.ui.size.medium,
+    color: COLORS.gray,
+    fontStyle: 'italic',
+    lineHeight: 24,
   },
   copyrightText: {
     fontSize: FONTS.ui.size.tiny,
@@ -864,5 +1089,187 @@ const styles = StyleSheet.create({
     fontSize: FONTS.ui.size.medium,
     fontWeight: '600',
     marginLeft: SPACING.sm,
+  },
+  // Share Card Styles
+  shareCardContainer: {
+    position: 'absolute',
+    left: -3000,
+    width: 1080,
+  },
+  shareCard: {
+    backgroundColor: COLORS.primary,
+    padding: 40,
+    width: 1080,
+    height: 1350, // 4:5 aspect ratio
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardBorder: {
+    flex: 1,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: 'rgba(212, 175, 55, 0.5)',
+    borderRadius: 20,
+    padding: 80,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.primary,
+  },
+  quoteIcon: {
+    marginBottom: 20,
+  },
+  shareCardBody: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  shareCardText: {
+    color: COLORS.white,
+    fontSize: 58,
+    fontFamily: FONTS.scripture?.regular || 'System',
+    fontStyle: 'italic',
+    lineHeight: 88,
+    textAlign: 'center',
+    marginBottom: 40,
+  },
+  shareCardDivider: {
+    width: 120,
+    height: 3,
+    backgroundColor: COLORS.gold,
+    marginVertical: 40,
+    borderRadius: 2,
+  },
+  shareCardReference: {
+    color: COLORS.gold,
+    fontSize: 48,
+    fontWeight: '800',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  shareCardVersion: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 10,
+    letterSpacing: 4,
+  },
+  shareCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 40,
+  },
+  shareCardAppName: {
+    color: 'rgba(212, 175, 55, 0.7)',
+    fontSize: 24,
+    fontWeight: '800',
+    marginLeft: 15,
+    letterSpacing: 6,
+  },
+  // Modal Overlay & Basic Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  // Share Modal Styles
+  sharePreviewContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sharePreviewCard: {
+    width: width * 0.7,
+    aspectRatio: 4/5,
+    borderRadius: 12,
+    overflow: 'hidden',
+    ...SHADOWS.medium,
+  },
+  sharePreviewCardBorder: {
+    flex: 1,
+    margin: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.4)',
+    borderRadius: 8,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sharePreviewText: {
+    fontSize: 14,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    lineHeight: 20,
+    fontFamily: 'serif',
+  },
+  sharePreviewRef: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 10,
+    letterSpacing: 1,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 12,
+  },
+  bgOptionsScroll: {
+    paddingBottom: 10,
+  },
+  bgOptionCard: {
+    width: 80,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bgOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  bgOptionThumb: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    marginBottom: 6,
+  },
+  bgOptionLabel: {
+    fontSize: 11,
+    color: COLORS.grayDark,
+    fontWeight: '500',
+  },
+  confirmShareButton: {
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 25,
+    marginBottom: 10,
+  },
+  confirmShareText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
 });

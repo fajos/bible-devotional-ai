@@ -16,10 +16,10 @@ import bibleApi from '../../services/bibleApi';
 import store from '../../services/store';
 
 const POPULAR_BIBLES = [
-  { id: 'de4e12af7f28f599-02', name: 'KJV', fullName: 'King James Version' },
-  { id: '06125ad293662221-01', name: 'ASV', fullName: 'American Standard Version' },
-  { id: 'bba9f40183526463-01', name: 'BSB', fullName: 'Berean Standard Bible' },
-  { id: '98270594415f35ec-01', name: 'ESV', fullName: 'English Standard Version' },
+  { id: 'NKJV', name: 'NKJV', fullName: 'New King James Version' },
+  { id: 'MSG', name: 'MSG', fullName: 'The Message' },
+  { id: 'KJV', name: 'KJV', fullName: 'King James Version' },
+  { id: 'ESV', name: 'ESV', fullName: 'English Standard Version' },
 ];
 
 export default function VerseCompareScreen() {
@@ -50,6 +50,7 @@ export default function VerseCompareScreen() {
               bibleName: bible.name || bible.abbreviation,
               bibleFullName: bible.fullName || bible.name,
               text: verse?.content || 'Verse not found in this version.',
+              verses: verse?.verses || [],
               reference: verse?.reference || reference,
             };
           } catch (err) {
@@ -120,7 +121,18 @@ export default function VerseCompareScreen() {
                 <Text style={styles.bibleName}>{result.bibleName}</Text>
                 <Text style={styles.bibleFullName}>{result.bibleFullName}</Text>
               </View>
-              <Text style={styles.verseText}>{result.text}</Text>
+              {result.verses && result.verses.length > 0 ? (
+                <View style={styles.versesContainer}>
+                  {result.verses.map((v, i) => (
+                    <Text key={i} style={styles.verseText}>
+                      <Text style={styles.verseNumber}>{v.number} </Text>
+                      {v.text}
+                    </Text>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.verseText}>{result.text}</Text>
+              )}
             </View>
           ))}
           <View style={styles.footerSpace} />
@@ -227,6 +239,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  versesContainer: {
+    marginTop: 4,
+  },
+  verseNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.gold,
+    verticalAlign: 'top',
   },
   footerSpace: {
     height: 40,

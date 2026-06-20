@@ -11,42 +11,42 @@ export const API_CONFIG = {
   },
 
   BIBLE_API: {
-    apiKey: 'YOUR_API_BIBLE_KEY_HERE',
-    baseUrl: 'https://api.scripture.api.bible/v1',
+    // bolls.life is a free, keyless API
+    baseUrl: 'https://bolls.life',
 
-    // Your selected favorites + commonly used versions
+    // Primary versions for the app
     versions: {
-      NKJV: '63097d2a0a2f7db3-01',
-      MSG: '6f11a7de016f942e-01',
-      AMP: 'a81b73293d3080c9-01',
-      KJV: 'de4e12af7f28f599-01',
-      NIV: '65eec8e0b60e656b-01',
-      ESV: '06125adad2d5898a-01',
-      NLT: '65eec8e0b60e656b-02',
-      ASV: '685d1470fe4d5c3b-01',
-      NASB: '0a78c7b95f39a9c4-01',
-      CSB: 'a5a127150e5e5533-01',
+      NKJV: 'NKJV',
+      MSG: 'MSG',
+      AMP: 'AMP',
+      KJV: 'KJV',
+      NIV: 'NIV',
+      ESV: 'ESV',
+      NLT: 'NLT',
+      NASB: 'NASB',
+      CSB: 'CSB',
+      ASV: 'ASV',
     },
 
     versionNames: {
-      '63097d2a0a2f7db3-01': 'New King James Version',
-      '6f11a7de016f942e-01': 'The Message',
-      'a81b73293d3080c9-01': 'Amplified Bible',
-      'de4e12af7f28f599-01': 'King James Version',
-      '65eec8e0b60e656b-01': 'New International Version',
-      '06125adad2d5898a-01': 'English Standard Version',
-      '65eec8e0b60e656b-02': 'New Living Translation',
-      '685d1470fe4d5c3b-01': 'American Standard Version',
-      '0a78c7b95f39a9c4-01': 'New American Standard Bible',
-      'a5a127150e5e5533-01': 'Christian Standard Bible',
+      'NKJV': 'New King James Version',
+      'MSG': 'The Message',
+      'AMP': 'Amplified Bible',
+      'KJV': 'King James Version',
+      'NIV': 'New International Version',
+      'ESV': 'English Standard Version',
+      'NLT': 'New Living Translation',
+      'NASB': 'New American Standard Bible',
+      'CSB': 'Christian Standard Bible',
+      'ASV': 'American Standard Version',
     },
+
+    // Secondary fallback for public domain versions
     PUBLIC_API: {
       baseUrl: 'https://bible-api.com',
       versions: {
         KJV: 'kjv',
         WEB: 'web',
-        BBE: 'bbe',
-        OEB: 'oeb',
       }
     }
   }

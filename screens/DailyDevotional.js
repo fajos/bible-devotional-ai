@@ -1,5 +1,4 @@
 // screens/DailyDevotional.js
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -11,6 +10,7 @@ import {
     View
 } from 'react-native';
 import AIService from '../services/openai';
+import Store from '../services/store';
 
 export default function DailyDevotional({ navigation }) {
   const [devotional, setDevotional] = useState(null);
@@ -25,10 +25,10 @@ export default function DailyDevotional({ navigation }) {
     try {
       // Check if today's devotional is already cached
       const today = new Date().toDateString();
-      const cached = await AsyncStorage.getItem('dailyDevotional');
+      const cached = await Store.getDailyDevotional();
       
       if (cached) {
-        const { date, devotional } = JSON.parse(cached);
+        const { date, devotional } = cached;
         if (date === today) {
           setDevotional(devotional);
           setLoading(false);
@@ -52,10 +52,7 @@ export default function DailyDevotional({ navigation }) {
       
       // Cache for today
       const today = new Date().toDateString();
-      await AsyncStorage.setItem('dailyDevotional', JSON.stringify({
-        date: today,
-        devotional: newDevotional
-      }));
+      await Store.setDailyDevotional(today, newDevotional);
     } catch (error) {
       console.error('Error generating daily devotional:', error);
     } finally {

@@ -34,7 +34,7 @@ class OpenAIService {
               4. Practical but Profound: Ensure applications are not superficial but rooted in the theological depth of the study.
 
               Tone: Academic yet accessible, pastoral, and deeply spiritual.
-              Format: Use clear headings and bullet points for readability.`) + (isSimpleRequest ? "" : "\n\nIMPORTANT: Use PLAIN TEXT ONLY. Do not use Markdown (no asterisks, no bold, no headers like ###). Use plain numbers for lists.")
+              Format: Use clear headings and bullet points for readability.`) + (isSimpleRequest ? "" : "\n\nIMPORTANT: Use clear section headers. You may use Markdown for emphasis (**bold**, *italics*) and bullet points, but ensure section headers are on their own lines and follow the EXACT requested format.")
             },
             {
               role: 'user',
@@ -59,7 +59,7 @@ class OpenAIService {
     }
   }
 
-  async generateDailyDevotional(bibleVersion = 'KJV') {
+  async generateDailyDevotional(bibleVersion = 'NKJV') {
     const today = new Date().toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -77,18 +77,27 @@ class OpenAIService {
 
     CONTENT:
     [Provide a deep-dive exposition (4-5 paragraphs) that:
-    - Explains the original linguistic or cultural context.
+    - Explains the original linguistic (Hebrew/Greek) or cultural context.
+    - Include specific Hebrew or Greek root words for key theological terms found in the passage, providing their transliteration and original meaning.
     - Connects the theme to the overarching biblical narrative.
     - Discusses the "Scarlet Thread" - how this points to or is fulfilled in Jesus Christ.
     - Provides a bridge between Old Testament shadows and New Testament reality.
 
     IMPORTANT: Start immediately with your analysis. DO NOT repeat the key verse text or the reference at the beginning of this section.]
 
+    OLD_TESTAMENT_SHADOWS:
+    - [Reference]: [How this topic/passage appears as a type, shadow, or promise in the OT]
+    - [Reference]: [Its significance in the Hebrew Scriptures]
+
+    NEW_TESTAMENT_FULFILLMENT:
+    - [Reference]: [How Christ or the New Covenant fulfills the OT promise/shadow]
+    - [Reference]: [The apostolic application of this truth]
+
     CROSS_REFERENCES:
-    - [OT Reference]: [Detailed explanation of how this Old Testament passage relates to the theme]
-    - [NT Reference]: [Detailed explanation of the New Testament fulfillment or application]
-    - [Prophetic Reference]: [Link to a prophetic fulfillment]
-    - [Practical Reference]: [A wisdom/poetic literature connection]
+    - [OT Reference]: [Detailed theological explanation of how this Old Testament passage relates to the theme. Do NOT repeat the verse text here.]
+    - [NT Reference]: [Detailed theological explanation of the New Testament fulfillment or application. Do NOT repeat the verse text here.]
+    - [Prophetic Reference]: [Link to a prophetic fulfillment. Do NOT repeat the verse text here.]
+    - [Practical Reference]: [A wisdom/poetic literature connection. Do NOT repeat the verse text here.]
 
     THEOLOGICAL_INSIGHT: [One profound paragraph on the character of God revealed in this study]
 
@@ -104,8 +113,10 @@ class OpenAIService {
     return await this.generateContent(prompt);
   }
 
-  async generateBibleStudy(topic, bibleVersion = 'KJV') {
+  async generateBibleStudy(topic, bibleVersion = 'NKJV') {
     const prompt = `Create an exhaustive, deep-dive Bible study on "${topic}" using the ${bibleVersion} Bible.
+
+    If the topic refers to a person and there are multiple individuals with that name in the Bible, focus on the most prominent one(s) and mention others briefly if relevant.
 
     Structure your response EXACTLY as follows:
 
@@ -114,11 +125,11 @@ class OpenAIService {
     INTRODUCTION: [A scholarly introduction to the theme within the canon of Scripture]
 
     KEY_VERSES:
-    - [Reference 1]: [Exegesis and context]
-    - [Reference 2]: [Exegesis and context]
-    - [Reference 3]: [Exegesis and context]
-    - [Reference 4]: [Exegesis and context]
-    - [Reference 5]: [Exegesis and context]
+    - [Reference 1]: [Exegesis and context. Provide scholarly insight only; do NOT repeat the verse text itself.]
+    - [Reference 2]: [Exegesis and context. Provide scholarly insight only; do NOT repeat the verse text itself.]
+    - [Reference 3]: [Exegesis and context. Provide scholarly insight only; do NOT repeat the verse text itself.]
+    - [Reference 4]: [Exegesis and context. Provide scholarly insight only; do NOT repeat the verse text itself.]
+    - [Reference 5]: [Exegesis and context. Provide scholarly insight only; do NOT repeat the verse text itself.]
 
     HISTORICAL_CONTEXT: [In-depth analysis of the historical, cultural, and geographic setting]
 
@@ -130,7 +141,8 @@ class OpenAIService {
     - [Reference]: [How Christ or the New Covenant fulfills the OT promise]
     - [Reference]: [The apostolic application of this truth]
 
-    STUDY_NOTES: [Comprehensive, scholarly commentary on the topic (5-6 paragraphs)]
+    STUDY_NOTES: [Comprehensive, scholarly commentary on the topic (5-6 paragraphs).
+    Include specific Hebrew or Greek root words for key theological terms relevant to the topic, providing their transliteration and original meaning.]
 
     PRACTICAL_APPLICATION: [Deeply rooted practical implications for the modern believer's walk]
 
@@ -149,35 +161,111 @@ class OpenAIService {
     return await this.generateContent(prompt);
   }
 
-  // Add this to the OpenAIService class in services/openai.js
+  async generateReadingPlan(topic, durationDays = 7, bibleVersion = 'NKJV') {
+    const prompt = `Create a deep, scripture-focused ${durationDays}-day Bible reading plan on the topic: "${topic}" using the ${bibleVersion} Bible.
 
-async validateBiblicalTopic(topic) {
-  const prompt = `Is "${topic}" a biblical topic, person, event, or concept found in or addressed by the Bible? 
-  Answer with ONLY "YES" or "NO". 
-  If it's a general life question, determine if the Bible provides guidance on this topic.`;
-  
-  const response = await this.generateContent(prompt);
-  return response.trim().toUpperCase().includes('YES');
-}
+    The plan must be theological and exegetical, not just practical or self-help. It should connect the topic to the broader "Whole Counsel of God" and the Redemptive-Historical narrative of Scripture.
 
-  async generateVerseReferences(topic, scope = 'entire_bible') {
-    const scopeDescription = scope === 'entire_bible' 
-      ? 'from Genesis to Revelation' 
-      : `from the ${scope}`;
+    Structure your response EXACTLY as follows (use JSON format for easy parsing):
 
-    const prompt = `List all significant Bible references about "${topic}" ${scopeDescription}.
-    
-    For each reference, provide:
-    - The exact reference (Book Chapter:Verse)
-    - A one-sentence summary of what it says about the topic
-    
-    Organize by:
-    1. Old Testament references
-    2. New Testament references
-    
-    Include at least 10-15 references if possible.`;
+    {
+      "title": "[A deep theological title for the plan]",
+      "description": "[A scholarly overview of how the Bible addresses this theme across both Testaments]",
+      "days": [
+        {
+          "day": 1,
+          "title": "[Day's focus title - should reflect a theological sub-theme]",
+          "reference": "[Bible passage reference, e.g., John 1:1-14]",
+          "devotional": "[A deep, scholarly devotional thought (2-3 paragraphs) that explains the context, original meaning, and how it points to Christ. Use transliterated Greek/Hebrew terms where appropriate.]",
+          "reflection": "[A profound reflection question that bridges the text to personal holiness]"
+        },
+        ...
+      ]
+    }
+
+    Ensure the plan has exactly ${durationDays} days. Ensure the JSON is valid.`;
+
+    const response = await this.generateContent(prompt, "You are an elite Biblical Scholar specialized in creating structured, deep-dive reading plans that focus on exegesis and the scarlet thread of redemption. Always respond with valid JSON.");
+
+    try {
+      // Find the JSON part in the response (sometimes AI adds preamble)
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+      return JSON.parse(response);
+    } catch (error) {
+      console.error("Failed to parse reading plan JSON:", error);
+      throw new Error("Could not generate a structured reading plan. Please try again.");
+    }
+  }
+
+  async explainVerse(verseText, reference, bibleVersion = 'NKJV') {
+    const prompt = `Provide a deep, scholarly contextual explanation for the following verse(s) from the ${bibleVersion} translation:
+
+    Reference: ${reference}
+    Text: "${verseText}"
+
+    Please include:
+    1. Historical and Cultural Context.
+    2. Original Language Insights (mention key Greek or Hebrew words if relevant).
+    3. Theological Significance (how it fits into the broader message of the Bible).
+    4. Practical Application for today.
+
+    Format the response using Markdown with clear headers.`;
 
     return await this.generateContent(prompt);
+  }
+
+  async validateBiblicalTopic(topic) {
+    const prompt = `Task: Determine if the following topic is suitable for a Bible study.
+    Topic: "${topic}"
+
+    Criteria for "YES":
+    1. It is a person, place, event, or object mentioned in the Bible.
+    2. It is a theological concept or doctrine found in Scripture.
+    3. It is a practical life topic that the Bible provides specific guidance or principles for.
+    4. It is a "Life Lessons" or "Biography" study of a biblical figure.
+
+    Only answer "NO" if the topic is completely secular and has no relation to biblical text, Christian theology, or spiritual life.
+
+    Answer with ONLY "YES" or "NO".`;
+
+    const response = await this.generateContent(prompt);
+    return response.trim().toUpperCase().includes('YES');
+  }
+
+  async generateDevotional(topicOrType, extraParam = null) {
+    if (topicOrType === 'daily') {
+      const response = await this.generateDailyDevotional();
+      return this.parseAIResponse(response, 'daily');
+    } else {
+      const response = await this.generateBibleStudy(topicOrType);
+      return this.parseAIResponse(response, topicOrType);
+    }
+  }
+
+  parseAIResponse(responseText, originalQuery) {
+    const result = {
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      topic: originalQuery,
+      content: responseText,
+      verses: []
+    };
+
+    // Extract TOPIC
+    const topicMatch = responseText.match(/TOPIC:\s*(.+)/);
+    if (topicMatch) result.topic = topicMatch[1].trim();
+
+    // Extract verse references like "John 3:16" or "Genesis 1:1"
+    const verseRegex = /\b([1-3]\s+)?[A-Z][a-z]+\s+\d+:\d+(-\d+)?\b/g;
+    const matches = responseText.match(verseRegex);
+    if (matches) {
+      result.verses = [...new Set(matches)]; // Unique references
+    }
+
+    return result;
   }
 }
 
