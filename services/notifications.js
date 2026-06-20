@@ -64,9 +64,10 @@ export async function scheduleDailyReminder(type, hour, minute) {
       data: { type },
     },
     trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DAILY, // 👈 ADD THIS LINE
       hour,
       minute,
-      repeats: true,
+      repeats: true, // Optional: you can remove this since DAILY inherently repeats
     },
   });
 

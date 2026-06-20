@@ -1,94 +1,92 @@
 // app/_layout.js
+import * as Notifications from 'expo-notifications';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
-import { requestPermissions, REMINDER_TYPES } from '../services/notifications';
+import { REMINDER_TYPES, requestPermissions } from '../services/notifications';
 
 export default function RootLayout() {
   const router = useRouter();
+  const notificationSubscription = useRef();
 
   useEffect(() => {
-    // Request notification permissions on mount
     requestPermissions();
 
-    // Check for notification that might have triggered the app launch (Cold Start)
     Notifications.getLastNotificationResponseAsync().then(response => {
       if (response) {
         handleNotificationResponse(response);
       }
     });
 
-    // Handle notification clicks while app is running
-    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    notificationSubscription.current = Notifications.addNotificationResponseReceivedListener(
+      handleNotificationResponse
+    );
 
-    return () => subscription.remove();
+    return () => {
+      if (notificationSubscription.current) {
+        notificationSubscription.current.remove();
+      }
+    };
   }, []);
 
   const handleNotificationResponse = (response) => {
-    const data = response.notification.request.content.data;
-    if (data?.type === REMINDER_TYPES.PRAYER) {
-      router.push('/prayer');
-    } else if (data?.type === REMINDER_TYPES.DEVOTIONAL) {
-      router.push('/(tabs)');
+    try {
+      const data = response.notification.request.content.data;
+      if (data?.type === REMINDER_TYPES.PRAYER) {
+        setTimeout(() => router.push('/prayer'), 100);
+      } else if (data?.type === REMINDER_TYPES.DEVOTIONAL) {
+        setTimeout(() => router.push('/(tabs)'), 100);
+      }
+    } catch (error) {
+      console.log('Notification handling error:', error);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" backgroundColor={COLORS.primary} />
-      <Stack
-        screenOptions={{
-          // Global header styling
-          headerStyle: {
-            backgroundColor: COLORS.primary,
-          },
-          headerTintColor: COLORS.gold,
-          headerTitleStyle: {
-            fontWeight: '600',
-            fontSize: 18,
-          },
-          headerBackTitleVisible: false,
-          
-          // Content styling
-          contentStyle: {
-            backgroundColor: COLORS.offWhite,
-          },
-          
-          // Animations
-          animation: 'slide_from_right',
-          
-          // Gesture handling
-          gestureEnabled: true,
-          gestureDirection: 'horizontal',
-        }}
-      >
-        <Stack.Screen
-          name="(tabs)"
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="devotional/[id]"
-          options={{
-            headerShown: false,
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <StatusBar style="light" backgroundColor={COLORS.primary} />
+        <Stack
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: COLORS.primary,
+            },
+            headerTintColor: COLORS.gold,
+            headerTitleStyle: {
+              fontWeight: '600',
+              fontSize: 18,
+            },
+            headerBackTitleVisible: false,
+            contentStyle: {
+              backgroundColor: COLORS.offWhite,
+            },
+            animation: 'slide_from_right',
+            gestureEnabled: true,
+            gestureDirection: 'horizontal',
           }}
-        />
-        <Stack.Screen
-          name="verse-compare/[reference]"
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="bible-reader/[bibleId]"
-          options={{
-            headerShown: false,
-          }}
-        />
-      </Stack>
-    </View>
+        >
+          <Stack.Screen
+            name="(tabs)"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="devotional/[id]"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="verse-compare/[reference]"
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="bible-reader/[bibleId]"
+            options={{ headerShown: false }}
+          />
+        </Stack>
+      </View>
+    </SafeAreaProvider>
   );
 }
 
