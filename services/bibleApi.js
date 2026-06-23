@@ -4,6 +4,10 @@ import store from './store';
 
 const BASE_URL = API_CONFIG.BIBLE_API.baseUrl;
 
+const LOCAL_BIBLE_DATA = {
+  'LOCAL_FLV': require('../assets/bible/FLV_NT.json')
+};
+
 const STANDARD_BIBLE_CHAPTERS = {
   'Genesis': 50, 'Exodus': 40, 'Leviticus': 27, 'Numbers': 36, 'Deuteronomy': 34,
   'Joshua': 24, 'Judges': 21, 'Ruth': 4, '1 Samuel': 31, '2 Samuel': 24,
@@ -73,6 +77,26 @@ class BibleAPIService {
   // Get all books of a Bible
   async getBooks(bibleId) {
     if (!bibleId) return [];
+
+    // Handle local Bible
+    if (bibleId === 'LOCAL_FLV') {
+      const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
+      return Object.keys(data).map((bookName, index) => {
+        const bookChapters = Object.keys(data[bookName]).length;
+        // NT books usually start from index 40 (Matthew)
+        const bookId = 40 + index;
+        return {
+          id: String(bookId),
+          name: bookName,
+          shortName: bookName,
+          standardName: bookName,
+          abbreviation: bookName.substring(0, 3).toUpperCase(),
+          number: bookId,
+          chapters: bookChapters
+        };
+      });
+    }
+
     try {
       const cacheKey = `books_bolls_${bibleId}`;
       const cached = await store.getCachedData(cacheKey);
@@ -195,6 +219,27 @@ class BibleAPIService {
   // Get full chapter content
   async getChapter(bibleId, bookId, chapterNumber) {
     if (!bibleId || !bookId || !chapterNumber) return null;
+
+    // Handle local Bible
+    if (bibleId === 'LOCAL_FLV') {
+      const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
+      let bookName = BIBLE_BOOKS_BY_ID[bookId];
+
+      // Fallback: try to find by ID if bookId is actually a name
+      if (!bookName) {
+        bookName = Object.keys(data).find(name => name.toLowerCase() === String(bookId).toLowerCase());
+      }
+
+      if (bookName && data[bookName] && data[bookName][chapterNumber]) {
+        const chapterData = data[bookName][chapterNumber];
+        return Object.keys(chapterData).map(vNum => ({
+          verse: parseInt(vNum),
+          text: this.cleanLocalText(chapterData[vNum])
+        }));
+      }
+      return null;
+    }
+
     try {
       const cacheKey = `content_bolls_${bibleId}_${bookId}_${chapterNumber}`;
       const cached = await store.getCachedData(cacheKey);
@@ -295,6 +340,64 @@ class BibleAPIService {
       const cleanRef = reference.replace(/\([^)]*\)/g, '').trim();
       const parsed = this.parseReference(cleanRef);
       if (!parsed) return null;
+
+      // Special handling for local Bible to avoid extra work
+      if (bibleId === 'LOCAL_FLV') {
+          const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
+          const bookName = Object.keys(data).find(name =>
+            name.toLowerCase() === parsed.book.toLowerCase() ||
+            name.toLowerCase().includes(parsed.book.toLowerCase())
+          );
+
+          if (bookName && data[bookName] && data[bookName][parsed.chapter]) {
+              const chapterData = data[bookName][parsed.chapter];
+
+              if (parsed.startVerse) {
+                  if (parsed.endVerse) {
+                      // Range
+                      const verses = [];
+                      for (let v = parsed.startVerse; v <= parsed.endVerse; v++) {
+                          const vText = this.cleanLocalText(chapterData[v]);
+                          if (vText) verses.push({ text: vText, number: v });
+                      }
+                      const text = verses.map(v => v.text).join(' ');
+                      return {
+                          reference: reference,
+                          content: text,
+                          text: text,
+                          verses: verses,
+                          copyright: 'The Father\'s Life Version'
+                      };
+                  } else {
+                      // Single verse
+                      const vText = this.cleanLocalText(chapterData[parsed.startVerse]);
+                      if (!vText) return null;
+                      return {
+                          reference: reference,
+                          content: vText,
+                          text: vText,
+                          verses: [{ text: vText, number: parsed.startVerse }],
+                          copyright: 'The Father\'s Life Version'
+                      };
+                  }
+              } else {
+                  // Whole chapter
+                  const verses = Object.keys(chapterData).map(v => ({
+                      text: this.cleanLocalText(chapterData[v]),
+                      number: parseInt(v)
+                  }));
+                  const text = verses.map(v => v.text).join(' ');
+                  return {
+                      reference: reference,
+                      content: text,
+                      text: text,
+                      verses: verses,
+                      copyright: 'The Father\'s Life Version'
+                  };
+              }
+          }
+          return null;
+      }
 
       const books = await this.getBooks(bibleId);
       if (!books || books.length === 0) return null;
@@ -429,6 +532,14 @@ class BibleAPIService {
       };
     }
     return null;
+  }
+
+  cleanLocalText(text) {
+    if (!text) return '';
+    // Strip uppercase book names at the end of the string
+    // Matches a space followed by one of the NT book names in caps at the very end
+    const bookPattern = /\s+(MATTHEW|MARK|LUKE|JOHN|ACTS|ROMANS|1 CORINTHIANS|2 CORINTHIANS|GALATIANS|EPHESIANS|PHILIPPIANS|COLOSSIANS|1 THESSALONIANS|2 THESSALONIANS|1 TIMOTHY|2 TIMOTHY|TITUS|PHILEMON|HEBREWS|JAMES|1 PETER|2 PETER|1 JOHN|2 JOHN|3 JOHN|JUDE|REVELATION)$/;
+    return text.replace(bookPattern, '').trim();
   }
 
   stripHtml(html) {

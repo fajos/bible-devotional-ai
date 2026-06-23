@@ -163,8 +163,9 @@ export default function BibleScreen() {
 
   const renderBibleItem = ({ item }: { item: Bible }) => {
     const isFav = favorites.some(f => f.id === item.id);
-    const isDownloaded = downloadedIds.includes(item.id);
+    const isDownloaded = downloadedIds.includes(item.id) || item.id === 'LOCAL_FLV';
     const status = downloadProgress[item.id];
+    const isLocal = item.id === 'LOCAL_FLV';
 
     const navigateToBible = async () => {
       // Check if we have a last read state for this bible version

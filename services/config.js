@@ -38,6 +38,7 @@ export const API_CONFIG = {
       ISV: 'ISV',
       CEVD: 'CEVD',
       GNTD: 'GNTD',
+      FLV: 'LOCAL_FLV',
     },
     
     versionNames: {
@@ -63,6 +64,7 @@ export const API_CONFIG = {
       'ISV': 'International Standard Version',
       'CEVD': 'Contemporary English Version',
       'GNTD': 'Good News Translation',
+      'FLV': "The Father's Life Version (NT)",
     },
 
     // Secondary fallback for KJV/WEB
