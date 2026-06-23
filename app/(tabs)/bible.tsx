@@ -86,9 +86,11 @@ export default function BibleScreen() {
     const data = await bibleAPIService.getBibles();
     // Sort so English bibles are first or filter to major ones
     const sorted = data.sort((a: Bible, b: Bible) => {
-        if (a.language.name === 'English' && b.language.name !== 'English') return -1;
-        if (a.language.name !== 'English' && b.language.name === 'English') return 1;
-        return a.name.localeCompare(b.name);
+        const nameA = a.name || '';
+        const nameB = b.name || '';
+        if (a.language?.name === 'English' && b.language?.name !== 'English') return -1;
+        if (a.language?.name !== 'English' && b.language?.name === 'English') return 1;
+        return nameA.localeCompare(nameB);
     });
     setBibles(sorted);
     setFilteredBibles(sorted);

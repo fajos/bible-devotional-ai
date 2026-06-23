@@ -97,6 +97,42 @@ class BibleAPIService {
       });
     }
 
+    // Handle GitHub Hosted Bible
+    if (bibleId.startsWith('GH_')) {
+        try {
+            const cacheKey = `books_github_${bibleId}`;
+            const cached = await store.getCachedData(cacheKey);
+            if (cached) return cached;
+
+            const data = await this.getGitHubBibleData(bibleId);
+            if (!data) return [];
+
+            const books = Object.keys(data).map(bookName => {
+                const chapters = Object.keys(data[bookName]).length;
+                const bookIdMatch = Object.entries(BIBLE_BOOKS_BY_ID).find(([id, name]) => name.toLowerCase() === bookName.toLowerCase());
+                const bookId = bookIdMatch ? bookIdMatch[0] : bookName;
+
+                return {
+                    id: String(bookId),
+                    name: bookName,
+                    shortName: bookName,
+                    standardName: BIBLE_BOOKS_BY_ID[bookId] || bookName,
+                    abbreviation: bookName.substring(0, 3).toUpperCase(),
+                    number: parseInt(bookId) || 0,
+                    chapters: chapters
+                };
+            });
+
+            if (books.length > 0) {
+                await store.setCachedData(cacheKey, books);
+            }
+            return books;
+        } catch (error) {
+            console.error('Error fetching GitHub books:', error);
+            return [];
+        }
+    }
+
     try {
       const cacheKey = `books_bolls_${bibleId}`;
       const cached = await store.getCachedData(cacheKey);
@@ -240,6 +276,39 @@ class BibleAPIService {
       return null;
     }
 
+    // Handle GitHub Hosted Bible
+    if (bibleId.startsWith('GH_')) {
+        try {
+            const cacheKey = `content_github_${bibleId}_${bookId}_${chapterNumber}`;
+            const cached = await store.getCachedData(cacheKey);
+            if (cached) return cached;
+
+            const data = await this.getGitHubBibleData(bibleId);
+            if (!data) return null;
+
+            let bookName = BIBLE_BOOKS_BY_ID[bookId];
+            if (!bookName) {
+                bookName = Object.keys(data).find(name => name.toLowerCase() === String(bookId).toLowerCase());
+            }
+
+            if (bookName && data[bookName] && data[bookName][chapterNumber]) {
+                const chapterData = data[bookName][chapterNumber];
+                const verses = Object.keys(chapterData).map(vNum => ({
+                    verse: parseInt(vNum),
+                    text: this.stripHtml(chapterData[vNum] || '').trim()
+                }));
+                if (verses.length > 0) {
+                    await store.setCachedData(cacheKey, verses);
+                }
+                return verses;
+            }
+            return null;
+        } catch (error) {
+            console.error('Error fetching GitHub chapter:', error);
+            return null;
+        }
+    }
+
     try {
       const cacheKey = `content_bolls_${bibleId}_${bookId}_${chapterNumber}`;
       const cached = await store.getCachedData(cacheKey);
@@ -341,9 +410,21 @@ class BibleAPIService {
       const parsed = this.parseReference(cleanRef);
       if (!parsed) return null;
 
-      // Special handling for local Bible to avoid extra work
-      if (bibleId === 'LOCAL_FLV') {
-          const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
+      // Special handling for local or GitHub Bible
+      if (bibleId === 'LOCAL_FLV' || bibleId.startsWith('GH_')) {
+          let data;
+          let copyright;
+
+          if (bibleId === 'LOCAL_FLV') {
+              data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
+              copyright = "The Father's Life Version";
+          } else {
+              data = await this.getGitHubBibleData(bibleId);
+              copyright = API_CONFIG.BIBLE_API.versionNames[Object.keys(API_CONFIG.BIBLE_API.versions).find(key => API_CONFIG.BIBLE_API.versions[key] === bibleId)];
+          }
+
+          if (!data) return null;
+
           const bookName = Object.keys(data).find(name =>
             name.toLowerCase() === parsed.book.toLowerCase() ||
             name.toLowerCase().includes(parsed.book.toLowerCase())
@@ -357,7 +438,8 @@ class BibleAPIService {
                       // Range
                       const verses = [];
                       for (let v = parsed.startVerse; v <= parsed.endVerse; v++) {
-                          const vText = this.cleanLocalText(chapterData[v]);
+                          const vRaw = chapterData[v];
+                          const vText = bibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
                           if (vText) verses.push({ text: vText, number: v });
                       }
                       const text = verses.map(v => v.text).join(' ');
@@ -366,24 +448,25 @@ class BibleAPIService {
                           content: text,
                           text: text,
                           verses: verses,
-                          copyright: 'The Father\'s Life Version'
+                          copyright: copyright
                       };
                   } else {
                       // Single verse
-                      const vText = this.cleanLocalText(chapterData[parsed.startVerse]);
+                      const vRaw = chapterData[parsed.startVerse];
+                      const vText = bibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
                       if (!vText) return null;
                       return {
                           reference: reference,
                           content: vText,
                           text: vText,
                           verses: [{ text: vText, number: parsed.startVerse }],
-                          copyright: 'The Father\'s Life Version'
+                          copyright: copyright
                       };
                   }
               } else {
                   // Whole chapter
                   const verses = Object.keys(chapterData).map(v => ({
-                      text: this.cleanLocalText(chapterData[v]),
+                      text: bibleId === 'LOCAL_FLV' ? this.cleanLocalText(chapterData[v]) : this.stripHtml(chapterData[v] || ''),
                       number: parseInt(v)
                   }));
                   const text = verses.map(v => v.text).join(' ');
@@ -392,7 +475,7 @@ class BibleAPIService {
                       content: text,
                       text: text,
                       verses: verses,
-                      copyright: 'The Father\'s Life Version'
+                      copyright: copyright
                   };
               }
           }
@@ -504,6 +587,30 @@ class BibleAPIService {
       console.error('Error in getMultipleVerses:', error);
       return [];
     }
+  }
+
+  async getGitHubBibleData(bibleId) {
+      try {
+          const fileName = API_CONFIG.BIBLE_API.GITHUB_API.mappings[bibleId];
+          if (!fileName) return null;
+
+          const cacheKey = `full_bible_github_${bibleId}`;
+          const cached = await store.getCachedData(cacheKey);
+          if (cached) return cached;
+
+          const url = `${API_CONFIG.BIBLE_API.GITHUB_API.baseUrl}/${encodeURIComponent(fileName)}`;
+          const response = await fetch(url);
+          if (!response.ok) return null;
+
+          const data = await response.json();
+          if (data) {
+              await store.setCachedData(cacheKey, data);
+          }
+          return data;
+      } catch (error) {
+          console.error(`Error fetching GitHub Bible data for ${bibleId}:`, error);
+          return null;
+      }
   }
 
   parseReference(reference) {
