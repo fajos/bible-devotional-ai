@@ -16,7 +16,7 @@ import {
     View,
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
-import { generateBibleStudy } from '../../services/devotionalEngine';
+import { generateBibleStudy, generateReadingPlan } from '../../services/devotionalEngine';
 import openaiService from '../../services/openai';
 import * as store from '../../services/store';
 
@@ -85,8 +85,8 @@ export default function SearchScreen() {
       }
 
       if (searchMode === 'plan') {
-        const plan = await openaiService.generateReadingPlan(trimmedQuery, planDuration);
-        const planId = Date.now().toString();
+        const plan = await generateReadingPlan(trimmedQuery, planDuration, 'NKJV');
+        const planId = plan.id;
         await store.storeDevotional({
           id: planId,
           type: 'reading_plan',

@@ -162,30 +162,38 @@ class OpenAIService {
   }
 
   async generateReadingPlan(topic, durationDays = 7, bibleVersion = 'NKJV') {
-    const prompt = `Create a deep, scripture-focused ${durationDays}-day Bible reading plan on the topic: "${topic}" using the ${bibleVersion} Bible.
+    const prompt = `Create an exhaustive, deep-dive ${durationDays}-day Bible reading plan on the topic: "${topic}" using the ${bibleVersion} Bible.
 
-    The plan must be theological and exegetical, not just practical or self-help. It should connect the topic to the broader "Whole Counsel of God" and the Redemptive-Historical narrative of Scripture.
+    IMPORTANT: If the topic "${topic}" is a book of the Bible (like "Ephesians", "Romans", etc.), the plan must act as a scholarly commentary and exposition of that book, progressing logically through its chapters and major theological themes.
 
-    Structure your response EXACTLY as follows (use JSON format for easy parsing):
+    This plan must be rigorous, exegetical, and profoundly theological. Avoid superficial summaries. Each day must provide deep "meat" for a serious student of the Word.
+
+    For each day's devotional content, you MUST provide at least 4-5 substantial paragraphs covering:
+    1. Literary & Historical Context: Where does this passage fit in the book's argument and what was the author's intent?
+    2. Exegetical Deep-Dive: A detailed verse-by-verse or section-by-section analysis.
+    3. Linguistic Analysis: Identify specific Greek or Hebrew terms (transliterated) that are critical to the passage, explaining their nuances.
+    4. Systematic & Biblical Theology: Connect this passage to major Christian doctrines and the "Scarlet Thread" of Christ's redemption throughout the entire Bible.
+    5. Modern Application: Rooted deeply in the theology discussed, not just "feel-good" advice.
+
+    Structure your response EXACTLY as follows (use JSON format):
 
     {
-      "title": "[A deep theological title for the plan]",
-      "description": "[A scholarly overview of how the Bible addresses this theme across both Testaments]",
+      "title": "[A profound theological title for the plan]",
+      "description": "[An exhaustive, scholarly introduction to the topic/book within the biblical canon]",
       "days": [
         {
           "day": 1,
-          "title": "[Day's focus title - should reflect a theological sub-theme]",
-          "reference": "[Bible passage reference, e.g., John 1:1-14]",
-          "devotional": "[A deep, scholarly devotional thought (2-3 paragraphs) that explains the context, original meaning, and how it points to Christ. Use transliterated Greek/Hebrew terms where appropriate.]",
-          "reflection": "[A profound reflection question that bridges the text to personal holiness]"
-        },
-        ...
+          "title": "[Theological sub-theme for the day]",
+          "reference": "[Specific Bible passage reference]",
+          "devotional": "[THE FULL SCHOLARLY CONTENT (at least 4-5 paragraphs) as described above. Use \n\n for paragraph breaks. Do NOT be brief. Be exhaustive.]",
+          "reflection": "[A challenging, heart-searching reflection question that bridges the exegetical depth to personal transformation]"
+        }
       ]
     }
 
-    Ensure the plan has exactly ${durationDays} days. Ensure the JSON is valid.`;
+    Ensure the plan has exactly ${durationDays} days. The JSON must be perfectly valid.`;
 
-    const response = await this.generateContent(prompt, "You are an elite Biblical Scholar specialized in creating structured, deep-dive reading plans that focus on exegesis and the scarlet thread of redemption. Always respond with valid JSON.");
+    const response = await this.generateContent(prompt, "You are a world-class Biblical Scholar, Professor of New Testament and Old Testament Exegesis, and Systematic Theologian. Your task is to produce rigorous, Christ-centered, and academically sound reading plans that uncover the deep theological riches of Scripture. You write for serious students of the Bible who want 'meat' and not just 'milk'. Always respond with valid JSON.");
 
     try {
       // Find the JSON part in the response (sometimes AI adds preamble)

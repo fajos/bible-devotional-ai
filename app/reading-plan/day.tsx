@@ -19,6 +19,14 @@ interface DayData {
   reference: string;
   devotional: string;
   reflection: string;
+  primaryVerse?: {
+    text: string;
+    copyright?: string;
+  };
+  crossReferences?: {
+    reference: string;
+    text: string;
+  }[];
 }
 
 interface StoredDevotional {
@@ -97,10 +105,22 @@ export default function ReadingPlanDayScreen() {
 
           <View style={styles.divider} />
 
-          <Text style={styles.sectionTitle}>Devotional Thought</Text>
+          <Text style={styles.sectionTitle}>Theological Deep-Dive</Text>
           {dayData.devotional.split('\n\n').map((p, i) => (
             <Text key={i} style={styles.devotionalText}>{p.trim()}</Text>
           ))}
+
+          {dayData.crossReferences && dayData.crossReferences.length > 0 && (
+            <View style={styles.crossReferencesContainer}>
+              <Text style={styles.sectionTitle}>Cross-References</Text>
+              {dayData.crossReferences.map((ref, idx) => (
+                <View key={idx} style={styles.crossRefCard}>
+                  <Text style={styles.crossRefReference}>{ref.reference}</Text>
+                  <Text style={styles.crossRefText}>{ref.text}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           <View style={styles.reflectionCard}>
             <Text style={styles.reflectionLabel}>REFLECTION</Text>
@@ -112,7 +132,8 @@ export default function ReadingPlanDayScreen() {
             onPress={async () => {
               const progress: number[] = (await store.getCachedData(`plan_progress_${planId}`)) || [];
               if (!progress.includes(parseInt(day as string))) {
-                await store.cacheData(`plan_progress_${planId}`, [...progress, parseInt(day as string)]);
+                const newProgress = [...progress, parseInt(day as string)];
+                await store.setCachedData(`plan_progress_${planId}`, newProgress);
               }
               router.back();
             }}
@@ -188,6 +209,46 @@ const styles = StyleSheet.create({
     color: COLORS.grayDark,
     lineHeight: 26,
     marginBottom: SPACING.md,
+  },
+  verseContent: {
+    backgroundColor: COLORS.offWhite,
+    padding: SPACING.lg,
+    borderRadius: 12,
+    marginBottom: SPACING.xl,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.gold,
+  },
+  verseText: {
+    fontSize: FONTS.ui.size.medium,
+    color: COLORS.primary,
+    fontStyle: 'italic',
+    lineHeight: 24,
+  },
+  copyrightText: {
+    fontSize: 10,
+    color: COLORS.gray,
+    marginTop: SPACING.sm,
+    textAlign: 'right',
+  },
+  crossReferencesContainer: {
+    marginTop: SPACING.lg,
+  },
+  crossRefCard: {
+    backgroundColor: COLORS.offWhite,
+    padding: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.sm,
+  },
+  crossRefReference: {
+    fontSize: FONTS.ui.size.small,
+    fontWeight: '700',
+    color: COLORS.goldDark,
+    marginBottom: 4,
+  },
+  crossRefText: {
+    fontSize: FONTS.ui.size.small,
+    color: COLORS.grayDark,
+    lineHeight: 20,
   },
   reflectionCard: {
     backgroundColor: COLORS.primary,

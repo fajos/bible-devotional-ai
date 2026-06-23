@@ -6,7 +6,7 @@ export const API_CONFIG = {
   OPENAI: {
     apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
     model: 'gpt-4o',
-    maxTokens: 2000,
+    maxTokens: 4000,
     temperature: 0.7,
   },
   

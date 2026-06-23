@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -36,6 +36,7 @@ interface SavedDevotional {
 export default function ReadingPlanScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const [plan, setPlan] = useState<ReadingPlan | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,7 +45,20 @@ export default function ReadingPlanScreen() {
 
   useEffect(() => {
     loadPlan();
-  }, [id]);
+
+    // Listen for focus to refresh progress when returning from day view
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshProgress();
+    });
+
+    return unsubscribe;
+  }, [id, navigation]);
+
+  const refreshProgress = async () => {
+    if (!id) return;
+    const progress = await store.getCachedData(`plan_progress_${id}`) as number[] | null;
+    setCompletedDays(progress || []);
+  };
 
   const loadPlan = async (): Promise<void> => {
     try {
@@ -56,19 +70,15 @@ export default function ReadingPlanScreen() {
 
       if (storedPlan && storedPlan.id === id && storedPlan.type === 'reading_plan') {
         setPlan(storedPlan.data);
-        // Load completion status
-        const progress = await store.getCachedData(`plan_progress_${id}`) as number[] | null;
-        if (progress) setCompletedDays(progress);
+        await refreshProgress();
       } else {
         // Fallback or search in saved plans
-        const saved: SavedDevotional[] = await store.getSavedDevotionals();
         const found = saved.find(item => item.id === id && item.type === 'reading_plan');
         if (found) {
           setPlan(found.data);
           // Ensure the in-memory store is updated so day view can find it
           store.storeDevotional(found);
-          const progress = await store.getCachedData(`plan_progress_${id}`) as number[] | null;
-          if (progress) setCompletedDays(progress);
+          await refreshProgress();
         } else {
            Alert.alert('Error', 'Reading plan not found.');
            router.back();

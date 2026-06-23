@@ -509,6 +509,70 @@ parseStudyResponse(aiContent, topic, bibleVersion) {
   getBibleVersionName(versionId) {
     return API_CONFIG.BIBLE_API.versionNames[versionId] || 'Unknown Version';
   }
+
+  // Generate a complete reading plan with verse fetching
+  async generateReadingPlan(topic, durationDays = 7, bibleVersion = 'NKJV') {
+    try {
+      const cacheKey = `plan_${topic.toLowerCase()}_${durationDays}_${bibleVersion}`;
+
+      if (this.cache.has(cacheKey)) {
+        return this.cache.get(cacheKey);
+      }
+
+      // Step 1: Generate plan structure with AI
+      const planData = await openaiService.generateReadingPlan(topic, durationDays, bibleVersion);
+
+      const bibleVersionId = this.getBibleVersionId(bibleVersion);
+
+      // Step 2: Enhance each day with verse text and cross-references
+      const enhancedDays = await Promise.all(planData.days.map(async (day) => {
+        // Fetch primary reading text
+        let primaryVerseData = null;
+        if (day.reference && bibleVersionId) {
+          primaryVerseData = await bibleAPIService.getFormattedVerse(bibleVersionId, day.reference);
+        }
+
+        // Extract and fetch cross-references from the devotional text
+        const refs = this.extractVerseReferences(day.devotional);
+        const crossRefs = [];
+
+        // Only fetch unique references that aren't the primary one
+        const uniqueRefs = [...new Set(refs)].filter(r => r !== day.reference).slice(0, 3);
+
+        for (const ref of uniqueRefs) {
+          const vData = await bibleAPIService.getFormattedVerse(bibleVersionId, ref);
+          if (vData) {
+            crossRefs.push({
+              reference: ref,
+              text: vData.text || vData.content
+            });
+          }
+        }
+
+        return {
+          ...day,
+          primaryVerse: primaryVerseData ? {
+            text: primaryVerseData.text || primaryVerseData.content,
+            copyright: primaryVerseData.copyright
+          } : null,
+          crossReferences: crossRefs
+        };
+      }));
+
+      const finalPlan = {
+        ...planData,
+        days: enhancedDays,
+        id: `plan_${Date.now()}`,
+        bibleVersion: bibleVersion
+      };
+
+      this.cache.set(cacheKey, finalPlan);
+      return finalPlan;
+    } catch (error) {
+      console.error('Reading plan generation error:', error);
+      throw error;
+    }
+  }
 }
 
 export const devotionalEngine = new DevotionalEngine();
@@ -518,3 +582,6 @@ export const generateDailyDevotional = (bibleVersion) =>
 
 export const generateBibleStudy = (topic, bibleVersion) =>
   devotionalEngine.generateBibleStudy(topic, bibleVersion);
+
+export const generateReadingPlan = (topic, durationDays, bibleVersion) =>
+  devotionalEngine.generateReadingPlan(topic, durationDays, bibleVersion);
