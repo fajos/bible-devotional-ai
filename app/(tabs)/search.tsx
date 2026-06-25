@@ -73,7 +73,7 @@ export default function SearchScreen() {
     try {
       // Step 1: Validate if topic is biblical
       const isBiblical = await openaiService.validateBiblicalTopic(trimmedQuery);
-      
+
       if (!isBiblical) {
         Alert.alert(
           'Not a Biblical Topic',
@@ -87,24 +87,33 @@ export default function SearchScreen() {
       if (searchMode === 'plan') {
         const plan = await generateReadingPlan(trimmedQuery, planDuration, 'NKJV');
         const planId = plan.id;
+
+        // Use a slight delay before navigation for smoother transition feeling
+        // This is where a cross-fade would be initiated if using a custom navigator
         await store.storeDevotional({
           id: planId,
           type: 'reading_plan',
           data: plan
         });
-        setLoading(false);
-        router.push(`/reading-plan/${planId}`);
+
+        setTimeout(() => {
+          setLoading(false);
+          router.push(`/reading-plan/${planId}`);
+        }, 100);
         return;
       }
 
-      // Step 2: Generate study content using DevotionalEngine (which uses Bolls Bible API)
+      // Step 2: Generate study content
       const study = await generateBibleStudy(trimmedQuery, 'NKJV');
-      
+
       // Step 3: Save to storage and navigate
       await store.storeDevotional(study);
-      setLoading(false);
-      router.push(`/devotional/${study.id}`);
-      
+
+      setTimeout(() => {
+        setLoading(false);
+        router.push(`/devotional/${study.id}`);
+      }, 100);
+
     } catch (error) {
       console.error('Search error:', error);
       Alert.alert(
@@ -154,7 +163,7 @@ export default function SearchScreen() {
                 <Ionicons name="book" size={24} color={searchMode === 'study' ? COLORS.white : COLORS.primary} />
               </View>
               <Text style={[styles.modeCardTitle, searchMode === 'study' && styles.modeCardTitleActive]}>AI Study</Text>
-              <Text style={[styles.modeCardDesc, searchMode === 'study' && styles.modeCardDescActive]}>Exegesis & Context</Text>
+              <Text style={[styles.modeCardDesc, searchMode === 'study' && styles.modeCardDescActive]}>Theological deep-dive</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -168,7 +177,7 @@ export default function SearchScreen() {
                 <Ionicons name="calendar" size={24} color={searchMode === 'plan' ? COLORS.white : COLORS.primary} />
               </View>
               <Text style={[styles.modeCardTitle, searchMode === 'plan' && styles.modeCardTitleActive]}>Reading Plan</Text>
-              <Text style={[styles.modeCardDesc, searchMode === 'plan' && styles.modeCardDescActive]}>Theological Roadmap</Text>
+              <Text style={[styles.modeCardDesc, searchMode === 'plan' && styles.modeCardDescActive]}>Custom roadmap</Text>
             </TouchableOpacity>
           </View>
 
@@ -198,7 +207,11 @@ export default function SearchScreen() {
             <Ionicons name="search" size={20} color={COLORS.gray} style={styles.searchIcon} />
             <TextInput
               style={styles.searchInput}
-              placeholder={searchMode === 'plan' ? "e.g. Sovereignty, The Covenants, Desert Seasons" : "e.g. Romans 8 Exegesis, Life of David, Tabernacle Typology"}
+              placeholder={
+                searchMode === 'plan'
+                  ? "e.g. Sovereignty, The Covenants"
+                  : "Topic (e.g. Romans 8 Exegesis)"
+              }
               placeholderTextColor={COLORS.gray}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -218,7 +231,10 @@ export default function SearchScreen() {
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator size="small" color={COLORS.white} />
+              <View style={styles.loadingButtonContent}>
+                <ActivityIndicator size="small" color={COLORS.white} />
+                <Text style={styles.searchButtonText}>Preparing your {searchMode === 'plan' ? 'Plan' : 'Study'}...</Text>
+              </View>
             ) : (
               <>
                 <Ionicons name="sparkles" size={20} color={COLORS.white} />
@@ -261,9 +277,6 @@ export default function SearchScreen() {
             <Text style={styles.tipItem}>
               <Text style={styles.tipHighlight}>Name people:</Text> "Life lessons from Joseph"
             </Text>
-            <Text style={styles.tipItem}>
-              <Text style={styles.tipHighlight}>Explore themes:</Text> "Covenants in the Bible"
-            </Text>
           </View>
         </View>
       </ScrollView>
@@ -285,6 +298,7 @@ const styles = StyleSheet.create({
   searchHeader: {
     backgroundColor: COLORS.primary,
     padding: SPACING.xl,
+    paddingTop: 60,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
@@ -339,6 +353,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: SPACING.sm,
   },
+  loadingButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   modeSelectionContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -383,7 +401,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: COLORS.gray,
     textAlign: 'center',
-    fontWeight: '500',
   },
   modeCardDescActive: {
     color: COLORS.grayLight,
@@ -441,7 +458,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   topicCard: {
-    width: '23%',
+    width: '31%',
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: SPACING.md,

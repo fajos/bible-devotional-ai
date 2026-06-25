@@ -110,19 +110,84 @@ class BibleAPIService {
     return null;
   }
 
+  // Helper for local JSON search (FLV or GitHub versions)
+  searchLocalData(activeBibleId, bibleData, query, page = 1, isFlv = false) {
+    try {
+      const results = [];
+      const lowerQuery = query.toLowerCase();
+
+      // Iterate through books, chapters, and verses
+      for (const bookName in bibleData) {
+        const chapters = bibleData[bookName];
+        if (!chapters || typeof chapters !== 'object') continue;
+
+        for (const chapterNum in chapters) {
+          const verses = chapters[chapterNum];
+          if (!verses || typeof verses !== 'object') continue;
+
+          for (const verseNum in verses) {
+            const rawText = verses[verseNum];
+            if (!rawText || typeof rawText !== 'string') continue;
+
+            if (rawText.toLowerCase().includes(lowerQuery)) {
+              // Determine bookId (Bolls style if possible, or fallback)
+              const bookIdMatch = Object.entries(BIBLE_BOOKS_BY_ID).find(
+                ([id, name]) => name.toLowerCase() === bookName.toLowerCase()
+              );
+
+              results.push({
+                id: `${activeBibleId}-${bookName}-${chapterNum}-${verseNum}`,
+                text: isFlv ? this.cleanLocalText(rawText) : this.stripHtml(rawText),
+                bookId: bookIdMatch ? bookIdMatch[0] : bookName,
+                bookName: bookName,
+                chapter: parseInt(chapterNum),
+                verse: parseInt(verseNum),
+                reference: `${bookName} ${chapterNum}:${verseNum}`
+              });
+            }
+          }
+        }
+      }
+
+      // Pagination for local results
+      const itemsPerPage = 20;
+      const totalResults = results.length;
+      const totalPages = Math.ceil(totalResults / itemsPerPage);
+      const paginatedResults = results.slice((page - 1) * itemsPerPage, page * itemsPerPage);
+
+      return {
+        results: paginatedResults,
+        totalPages: totalPages,
+        totalResults: totalResults
+      };
+    } catch (error) {
+      console.error(`Local search error for ${activeBibleId}:`, error);
+      return { results: [], totalPages: 0, totalResults: 0 };
+    }
+  }
+
   // Search for verses by keyword
   async search(bibleId, query, page = 1) {
-    if (!bibleId || !query) return { results: [], total_pages: 0 };
+    if (!bibleId || !query) return { results: [], totalPages: 0, totalResults: 0 };
     const activeBibleId = await this.resolveBibleId(bibleId);
 
-    // Local search not implemented for full Bible yet
-    if (activeBibleId === 'LOCAL_FLV') {
-        return { results: [], total_pages: 0, error: 'Search not available for local version' };
+    // 1. Check for Local/GitHub versions to support offline search
+    if (activeBibleId === 'LOCAL_FLV' || activeBibleId.startsWith('GH_')) {
+      const isFlv = activeBibleId === 'LOCAL_FLV';
+      const data = isFlv ? LOCAL_BIBLE_DATA['LOCAL_FLV'] : await this.getGitHubBibleData(activeBibleId);
+
+      if (data) {
+        return this.searchLocalData(activeBibleId, data, query, page, isFlv);
+      }
     }
 
+    // 2. Fallback to Bolls API Search for other versions (online)
+    // Strip GH_ prefix just in case we didn't have data cached but want to try remote
+    const bollsId = activeBibleId.startsWith('GH_') ? activeBibleId.replace('GH_', '') : activeBibleId;
+
     try {
-      const response = await fetch(`${BASE_URL}/search/${activeBibleId}/?search=${encodeURIComponent(query)}&page=${page}`);
-      if (!response.ok) return { results: [], total_pages: 0 };
+      const response = await fetch(`${BASE_URL}/search/${bollsId}/?search=${encodeURIComponent(query)}&page=${page}`);
+      if (!response.ok) return { results: [], totalPages: 0, totalResults: 0 };
 
       const data = await response.json();
       // Bolls search returns { results: [...], total_pages: X }
@@ -141,8 +206,8 @@ class BibleAPIService {
         totalResults: data.total_results || 0
       };
     } catch (error) {
-      console.error('Search error:', error);
-      return { results: [], total_pages: 0 };
+      console.error('Bolls search error:', error);
+      return { results: [], totalPages: 0, totalResults: 0 };
     }
   }
 

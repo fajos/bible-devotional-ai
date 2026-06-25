@@ -9,10 +9,12 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -104,6 +106,16 @@ export default function BibleReaderScreen() {
 
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+
+  const [verseSearchModalVisible, setVerseSearchModalVisible] = useState(false);
+  const [verseSearchQuery, setVerseSearchQuery] = useState('');
+  const [verseSearchResults, setVerseSearchResults] = useState<any[]>([]);
+  const [verseSearchLoading, setVerseSearchLoading] = useState(false);
+  const [verseSearchPage, setVerseSearchPage] = useState(1);
+  const [verseSearchTotalPages, setVerseSearchTotalPages] = useState(1);
+  const [verseSearchTotalResults, setVerseSearchTotalResults] = useState(0);
+  const [isMoreLoading, setIsMoreLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   const isLightBg = selectedBackground.id === 'parchment';
   const textColor = isLightBg ? COLORS.primary : COLORS.white;
@@ -502,6 +514,66 @@ export default function BibleReaderScreen() {
     }
   };
 
+  const handleVerseSearch = async () => {
+    if (!verseSearchQuery.trim()) return;
+
+    setVerseSearchLoading(true);
+    setVerseSearchPage(1);
+    setHasSearched(true);
+    setVerseSearchResults([]); // Clear previous results immediately
+    try {
+      const data = await bibleApi.search(bibleId, verseSearchQuery, 1);
+      setVerseSearchResults(data.results || []);
+      setVerseSearchTotalPages(data.totalPages || 1);
+      setVerseSearchTotalResults(data.totalResults || 0);
+    } catch (error) {
+      console.error('Verse search error:', error);
+      Alert.alert('Search Error', 'Failed to search verses.');
+    } finally {
+      setVerseSearchLoading(false);
+    }
+  };
+
+  const loadMoreVerseSearchResults = async () => {
+    if (verseSearchLoading || isMoreLoading || verseSearchPage >= verseSearchTotalPages) return;
+
+    setIsMoreLoading(true);
+    const nextPage = verseSearchPage + 1;
+    try {
+      const data = await bibleApi.search(bibleId, verseSearchQuery, nextPage);
+      setVerseSearchResults(prev => [...prev, ...(data.results || [])]);
+      setVerseSearchPage(nextPage);
+    } catch (error) {
+      console.error('Load more error:', error);
+    } finally {
+      setIsMoreLoading(false);
+    }
+  };
+
+  const navigateToSearchResult = async (result: any) => {
+    setVerseSearchModalVisible(false);
+    setVerseSearchQuery('');
+    setVerseSearchResults([]);
+
+    // Check if it's the same book and chapter
+    if (currentBook?.id === String(result.bookId) && currentChapter?.number === String(result.chapter)) {
+      // Just scroll to verse? For now just re-select chapter to be sure
+      await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
+    } else {
+      // Find the book and navigate
+      const book = books.find(b => b.id === String(result.bookId) || b.name === result.bookName);
+      if (book) {
+        await selectBook(book);
+        await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
+      } else {
+          // Fallback if book not in current list (maybe different testament)
+          const bookData = { id: String(result.bookId), name: result.bookName };
+          await selectBook(bookData);
+          await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
+      }
+    }
+  };
+
   useEffect(() => {
     return () => {
       Speech.stop();
@@ -546,6 +618,16 @@ export default function BibleReaderScreen() {
         >
             <Text style={styles.versionAbbr}>{bible?.abbreviation || ''}</Text>
             <Ionicons name="chevron-down" size={10} color={COLORS.gold} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.headerIconButton}
+          onPress={() => {
+            setHasSearched(false);
+            setVerseSearchModalVisible(true);
+          }}
+        >
+          <Ionicons name="search" size={22} color={COLORS.gold} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -877,6 +959,75 @@ export default function BibleReaderScreen() {
         </View>
       </Modal>
 
+      {/* Verse Search Modal */}
+      <Modal
+        visible={verseSearchModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setVerseSearchModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Search in {bible?.abbreviation || 'Bible'}</Text>
+                {verseSearchTotalResults > 0 && (
+                  <Text style={styles.searchCountText}>{verseSearchTotalResults} verses found</Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => setVerseSearchModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.verseSearchInputContainer}>
+              <TextInput
+                style={styles.verseSearchInput}
+                placeholder="Search keywords (e.g. 'grace', 'covenant')"
+                value={verseSearchQuery}
+                onChangeText={setVerseSearchQuery}
+                onSubmitEditing={handleVerseSearch}
+                autoFocus
+              />
+              <TouchableOpacity style={styles.verseSearchButton} onPress={handleVerseSearch}>
+                <Ionicons name="search" size={20} color={COLORS.white} />
+              </TouchableOpacity>
+            </View>
+
+            {verseSearchLoading ? (
+              <ActivityIndicator size="large" color={COLORS.gold} style={{ marginTop: 20 }} />
+            ) : (
+              <FlatList
+                data={verseSearchResults}
+                keyExtractor={(item, index) => `${item.id}-${index}`}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.searchResultItem}
+                    onPress={() => navigateToSearchResult(item)}
+                  >
+                    <Text style={styles.searchResultRef}>{item.reference}</Text>
+                    <Text style={styles.searchResultText} numberOfLines={3}>{item.text}</Text>
+                  </TouchableOpacity>
+                )}
+                onEndReached={loadMoreVerseSearchResults}
+                onEndReachedThreshold={0.5}
+                ListFooterComponent={() =>
+                  isMoreLoading ? (
+                    <ActivityIndicator size="small" color={COLORS.gold} style={{ marginVertical: 20 }} />
+                  ) : null
+                }
+                ListEmptyComponent={
+                  hasSearched && !verseSearchLoading ? (
+                    <Text style={styles.emptySearchText}>No verses found.</Text>
+                  ) : null
+                }
+                contentContainerStyle={{ paddingBottom: 20 }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Book/Chapter Selector Modal */}
       <Modal
         visible={selectorVisible}
@@ -1024,6 +1175,10 @@ const styles = StyleSheet.create({
   speechButton: {
     padding: 8,
     marginLeft: 8,
+  },
+  headerIconButton: {
+    padding: 8,
+    marginLeft: 4,
   },
   center: {
     flex: 1,
@@ -1466,6 +1621,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 10,
+  },
+  // Verse Search Styles
+  verseSearchInputContainer: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    gap: 10,
+  },
+  verseSearchInput: {
+    flex: 1,
+    height: 44,
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  verseSearchButton: {
+    width: 44,
+    height: 44,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchResultItem: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  searchResultRef: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.goldDark,
+    marginBottom: 4,
+  },
+  searchResultText: {
+    fontSize: 14,
+    color: COLORS.primary,
+    lineHeight: 20,
+  },
+  searchCountText: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 2,
+  },
+  emptySearchText: {
+    textAlign: 'center',
+    marginTop: 20,
+    color: COLORS.gray,
+    fontStyle: 'italic',
   },
 });
 
