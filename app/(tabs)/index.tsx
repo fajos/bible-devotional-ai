@@ -307,11 +307,11 @@ export default function DailyDevotionalScreen(): JSX.Element {
           <Text style={styles.actionText}>My Library</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/search?mode=plan')}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/bible-in-one-year')}>
           <View style={styles.actionIconContainer}>
             <Ionicons name="calendar" size={24} color={COLORS.gold} />
           </View>
-          <Text style={styles.actionText}>Reading Plan</Text>
+          <Text style={styles.actionText}>Yearly Plan</Text>
         </TouchableOpacity>
       </View>
 

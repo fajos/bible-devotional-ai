@@ -79,27 +79,38 @@ export default function LibraryScreen() {
     );
   };
 
-    const renderItem: ListRenderItem<Devotional> = ({ item }) => (
-        <TouchableOpacity
-            style={styles.itemCard}
-            onPress={() => {
-                store.storeDevotional(item);
-                if (item.type === 'reading_plan') {
-                    router.push(`/reading-plan/${item.id}`);
-                } else {
-                    router.push(`/devotional/${item.id}`);
-                }
-            }}
-        >
-            <View style={styles.itemHeader}>
+  const getCleanPreview = (text?: string) => {
+    if (!text) return '';
+    return text
+      .replace(/#+\s/g, '') // Remove markdown headers
+      .replace(/\*\*/g, '') // Remove bold
+      .replace(/\*/g, '')   // Remove italics
+      .replace(/__/g, '')   // Remove underline
+      .replace(/`/g, '')    // Remove code ticks
+      .trim();
+  };
+
+  const renderItem: ListRenderItem<Devotional> = ({ item }) => (
+    <TouchableOpacity
+      style={styles.itemCard}
+      onPress={() => {
+        store.storeDevotional(item);
+        if (item.type === 'reading_plan') {
+          router.push(`/reading-plan/${item.id}`);
+        } else {
+          router.push(`/devotional/${item.id}`);
+        }
+      }}
+    >
+      <View style={styles.itemHeader}>
         <View style={styles.itemType}>
-          <Ionicons 
+          <Ionicons
             name={item.type === 'study' ? 'school' : item.type === 'reading_plan' ? 'calendar' : 'book'}
-            size={16} 
-            color={COLORS.gold} 
+            size={16}
+            color={COLORS.gold}
           />
           <Text style={styles.itemTypeText}>
-            {item.type === 'study' ? 'Study' : item.type === 'reading_plan' ? 'Reading Plan' : 'Devotional'}
+            {item.type === 'study' ? (item.topic?.startsWith('Insight:') ? 'Insight' : 'Study') : item.type === 'reading_plan' ? 'Reading Plan' : 'Devotional'}
           </Text>
         </View>
         <TouchableOpacity onPress={() => deleteItem(item.id)}>
@@ -108,10 +119,12 @@ export default function LibraryScreen() {
       </View>
 
       <Text style={styles.itemTopic}>{item.type === 'reading_plan' ? item.data?.title ?? '' : item.topic}</Text>
-      
+
       {(item.content || (item.type === 'reading_plan' && item.data?.description)) && (
         <Text style={styles.itemPreview} numberOfLines={2}>
-          {item.type === 'reading_plan' ? item.data?.description ?? '' : item.content}
+          {item.type === 'reading_plan'
+            ? getCleanPreview(item.data?.description)
+            : getCleanPreview(item.content)}
         </Text>
       )}
 

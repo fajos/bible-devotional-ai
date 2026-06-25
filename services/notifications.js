@@ -15,6 +15,7 @@ Notifications.setNotificationHandler({
 export const REMINDER_TYPES = {
   PRAYER: 'prayer_reminder',
   DEVOTIONAL: 'devotional_reminder',
+  READING_PLAN: 'reading_plan_reminder',
 };
 
 /**
@@ -55,19 +56,33 @@ export async function scheduleDailyReminder(type, hour, minute) {
   const hasPermission = await requestPermissions();
   if (!hasPermission) return false;
 
+  let title, body;
+  switch (type) {
+    case REMINDER_TYPES.PRAYER:
+      title = "Time for Prayer";
+      body = "Take a moment to talk to God and review your journal.";
+      break;
+    case REMINDER_TYPES.READING_PLAN:
+      title = "Daily Bible Reading";
+      body = "Your daily portion of the Word is waiting for you.";
+      break;
+    case REMINDER_TYPES.DEVOTIONAL:
+    default:
+      title = "Daily Devotional";
+      body = "Start your day with God. Your daily devotional is ready.";
+      break;
+  }
+
   const identifier = await Notifications.scheduleNotificationAsync({
     content: {
-      title: type === REMINDER_TYPES.PRAYER ? "Time for Prayer" : "Daily Devotional",
-      body: type === REMINDER_TYPES.PRAYER
-        ? "Take a moment to talk to God and review your journal."
-        : "Start your day with God. Your daily devotional is ready.",
+      title,
+      body,
       data: { type },
     },
     trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DAILY, // 👈 ADD THIS LINE
+      type: Notifications.SchedulableTriggerInputTypes.DAILY,
       hour,
       minute,
-      repeats: true, // Optional: you can remove this since DAILY inherently repeats
     },
   });
 

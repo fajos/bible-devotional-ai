@@ -111,7 +111,7 @@ export default function BibleReaderScreen() {
 
   useEffect(() => {
     loadInitialData();
-  }, [bibleId]);
+  }, [bibleId, reference]);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -131,18 +131,49 @@ export default function BibleReaderScreen() {
         let chapterToSelect = null;
 
         if (reference) {
-           // Basic parsing for "Book Chapter:Verse" or "Book Chapter"
-           const parts = reference.split(' ');
-           const bookName = parts.slice(0, parts.length - 1).join(' ');
-           const chapterParts = parts[parts.length - 1].split(':');
-           const chapterNum = chapterParts[0];
+          // Robust parsing for "Book Chapter:Verse" or "Book Chapter-Chapter" or "1 Book Chapter"
+          const parts = reference.trim().split(/\s+/);
+          if (parts.length >= 2) {
+            // Last part usually contains chapter/verse: "1:1-5" or "1-2" or "1"
+            const lastPart = parts[parts.length - 1];
+            const bookName = parts.slice(0, parts.length - 1).join(' ');
 
-           bookToSelect = booksData.find(b => b.name.toLowerCase() === bookName.toLowerCase());
-           if (bookToSelect) {
-             const chaptersData = await bibleApi.getChapters(bibleId, bookToSelect.id);
-             setChapters(chaptersData);
-             chapterToSelect = chaptersData.find(c => c.number === chapterNum);
-           }
+            // Extract chapter number: "1:5-10" -> "1", "1-2" -> "1", "5" -> "5"
+            const chapterNum = lastPart.split(/[:\-]/)[0];
+
+            const normalizedBookName = bookName.toLowerCase().trim();
+
+            // Priority matching
+            // 1. Exact match (case insensitive)
+            bookToSelect = booksData.find(b =>
+              b.name.toLowerCase() === normalizedBookName ||
+              b.id.toLowerCase() === normalizedBookName ||
+              (b.shortName && b.shortName.toLowerCase() === normalizedBookName)
+            );
+
+            // 2. Singular/Plural match for Psalms/Psalm
+            if (!bookToSelect) {
+              bookToSelect = booksData.find(b => {
+                const bName = b.name.toLowerCase();
+                return bName === normalizedBookName + 's' ||
+                       normalizedBookName === bName + 's';
+              });
+            }
+
+            // 3. Prefix match (e.g. "Gen" for "Genesis")
+            if (!bookToSelect) {
+              bookToSelect = booksData.find(b =>
+                b.name.toLowerCase().startsWith(normalizedBookName) ||
+                (b.shortName && b.shortName.toLowerCase().startsWith(normalizedBookName))
+              );
+            }
+
+            if (bookToSelect) {
+              const chaptersData = await bibleApi.getChapters(bibleId, bookToSelect.id);
+              setChapters(chaptersData);
+              chapterToSelect = chaptersData.find(c => c.number === chapterNum);
+            }
+          }
         }
 
         if (!bookToSelect) {
@@ -333,6 +364,7 @@ export default function BibleReaderScreen() {
 
     setAiLoading(true);
     setAiModalVisible(true);
+    setAiExplanation(null);
 
     try {
       const selectedVersesData = verses.filter(v => selectedVerses.includes(v.id));
@@ -347,6 +379,64 @@ export default function BibleReaderScreen() {
       setAiModalVisible(false);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const saveAiInsight = async () => {
+    if (!aiExplanation) return;
+    try {
+      const selectedVersesData = verses.filter(v => selectedVerses.includes(v.id));
+      const reference = `${currentBook?.name} ${currentChapter?.number}:${selectedVersesData[0].number}${selectedVersesData.length > 1 ? '-' + selectedVersesData[selectedVersesData.length - 1].number : ''}`;
+
+      const itemToSave = {
+        id: `ai-insight-${Date.now()}`,
+        type: 'study',
+        topic: `Insight: ${reference}`,
+        content: aiExplanation,
+        date: new Date().toISOString(),
+        bibleVersion: bible?.abbreviation || 'NKJV',
+        reference: reference
+      };
+
+      await store.toggleSaveDevotional(itemToSave);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Saved', 'This insight has been saved to your library.');
+    } catch (error) {
+      console.error('Error saving insight:', error);
+      Alert.alert('Error', 'Failed to save insight.');
+    }
+  };
+
+  const shareAiInsight = async () => {
+    if (!aiExplanation) return;
+    try {
+      const selectedVersesData = verses.filter(v => selectedVerses.includes(v.id));
+      const reference = `${currentBook?.name} ${currentChapter?.number}:${selectedVersesData[0].number}${selectedVersesData.length > 1 ? '-' + selectedVersesData[selectedVersesData.length - 1].number : ''}`;
+
+      const shareContent = `AI Verse Insight: ${reference}\n\n${aiExplanation}\n\nShared from Bible Devotional AI`;
+
+      await Sharing.shareAsync('', {
+        dialogTitle: `Share Insight: ${reference}`,
+        UTI: 'public.plain-text',
+        mimeType: 'text/plain',
+        content: shareContent
+      } as any);
+    } catch (error) {
+      // expo-sharing might need a local file for some platforms if content is large,
+      // but usually simple text works via Share API from react-native if expo-sharing fails on string.
+      // Trying React Native's Share as fallback.
+      try {
+        const { Share } = require('react-native');
+        const selectedVersesData = verses.filter(v => selectedVerses.includes(v.id));
+        const reference = `${currentBook?.name} ${currentChapter?.number}:${selectedVersesData[0].number}${selectedVersesData.length > 1 ? '-' + selectedVersesData[selectedVersesData.length - 1].number : ''}`;
+        await Share.share({
+          message: `AI Verse Insight: ${reference}\n\n${aiExplanation}\n\nShared from Bible Devotional AI`,
+          title: `Insight: ${reference}`
+        });
+      } catch (innerError) {
+        console.error('Share error:', innerError);
+        Alert.alert('Error', 'Failed to share insight.');
+      }
     }
   };
 
@@ -678,9 +768,17 @@ export default function BibleReaderScreen() {
                 <Ionicons name="sparkles" size={20} color={COLORS.goldDark} style={{ marginRight: 8 }} />
                 <Text style={styles.modalTitle}>AI Verse Insight</Text>
               </View>
-              <TouchableOpacity onPress={() => setAiModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
-              </TouchableOpacity>
+              <View style={styles.aiHeaderActions}>
+                <TouchableOpacity onPress={saveAiInsight} style={styles.aiHeaderButton}>
+                  <Ionicons name="bookmark-outline" size={20} color={COLORS.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={shareAiInsight} style={styles.aiHeaderButton}>
+                  <Ionicons name="share-social-outline" size={20} color={COLORS.primary} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setAiModalVisible(false)} style={styles.aiHeaderButton}>
+                  <Ionicons name="close" size={24} color={COLORS.primary} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {aiLoading ? (
@@ -1266,6 +1364,15 @@ const styles = StyleSheet.create({
   aiTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+  },
+  aiHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiHeaderButton: {
+    padding: 8,
+    marginLeft: 4,
   },
   aiLoadingContainer: {
     flex: 1,

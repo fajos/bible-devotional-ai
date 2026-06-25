@@ -16,11 +16,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 import { BACKGROUND_OPTIONS } from '../../constants/sharing';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import * as store from '../../services/store';
+import bibleApi from '../../services/bibleApi';
 
 const { width } = Dimensions.get('window');
 
@@ -83,32 +85,75 @@ interface StudyData {
   discussionQuestions?: string[];
   bibleVersion?: string;
   verses?: VerseItem[];
+  content?: string;
+  reference?: string;
 }
 
 type BackgroundOption = typeof BACKGROUND_OPTIONS[number];
 
 type DevotionalSource = Devotional | StudyData;
 
+const markdownStyles = StyleSheet.create({
+  body: {
+    color: COLORS.primary,
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  heading1: {
+    color: COLORS.goldDark,
+    fontSize: 22,
+    fontWeight: '800',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  heading2: {
+    color: COLORS.goldDark,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  paragraph: {
+    marginBottom: 12,
+  },
+  strong: {
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+});
+
 export default function DevotionalDetailScreen(): JSX.Element {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const [devotional, setDevotional] = useState<Devotional | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [isSaved, setIsSaved] = useState<boolean>(false);
-  const [showFullContent, setShowFullContent] = useState<boolean>(false);
-  const viewShotRef = useRef<React.ElementRef<typeof ViewShot> | null>(null);
+    const { id } = useLocalSearchParams<{ id: string }>();
+    const router = useRouter();
+    const insets = useSafeAreaInsets();
+    const [devotional, setDevotional] = useState<Devotional | null>(null);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [isSaved, setIsSaved] = useState<boolean>(false);
+    const [showFullContent, setShowFullContent] = useState<boolean>(false);
+    const viewShotRef = useRef<React.ElementRef<typeof ViewShot> | null>(null);
 
-  const [selectedBackground, setSelectedBackground] = useState<BackgroundOption>(BACKGROUND_OPTIONS[0]);
-  const [shareModalVisible, setShareModalVisible] = useState<boolean>(false);
+    const [selectedBackground, setSelectedBackground] = useState<BackgroundOption>(BACKGROUND_OPTIONS[0]);
+    const [shareModalVisible, setShareModalVisible] = useState<boolean>(false);
 
-  const isLightBg: boolean = selectedBackground.id === 'parchment';
-  const textColor: string = isLightBg ? COLORS.primary : COLORS.white;
-  const goldColor: string = isLightBg ? COLORS.goldDark : COLORS.gold;
+    const [isSavingImage, setIsSavingImage] = useState<boolean>(false);
 
-  useEffect(() => {
-    loadDevotional();
-  }, [id]);
+    const isLightBg: boolean = selectedBackground.id === 'parchment';
+    const textColor: string = isLightBg ? COLORS.primary : COLORS.white;
+    const goldColor: string = isLightBg ? COLORS.goldDark : COLORS.gold;
+
+    useEffect(() => {
+      loadDevotional();
+    }, [id]);
+
+    useEffect(() => {
+        if (devotional && !devotional.keyVerse?.text) {
+            fetchMissingVerseText(devotional).then(updated => {
+                if (updated.keyVerse?.text) {
+                    setDevotional(updated);
+                }
+            });
+        }
+    }, [devotional?.id]);
 
   // Format study data to match devotional display format
 const adaptStudyToDevotional = (study: StudyData): Devotional => {
@@ -116,11 +161,11 @@ const adaptStudyToDevotional = (study: StudyData): Devotional => {
     id: study.id,
     date: study.date || new Date().toISOString(),
     topic: study.topic,
-    keyVerse: study.keyVerses && study.keyVerses[0] ? {
+    keyVerse: (study.keyVerses && study.keyVerses[0]) ? {
       reference: study.keyVerses[0].reference,
       text: study.keyVerses[0].actualText || study.keyVerses[0].context || '',
-    } : null,
-    content: study.studyNotes || study.introduction || study.rawContent,
+    } : (study.reference ? { reference: study.reference, text: '' } : null),
+    content: study.content || study.studyNotes || study.introduction || study.rawContent,
     historicalContext: study.historicalContext,
     theologicalInsight: study.theologicalInsight,
     oldTestamentShadows: study.oldTestamentShadows || study.oldTestamentRefs,
@@ -146,13 +191,42 @@ const resolveDevotional = (data: DevotionalSource): Devotional => {
   return isStudyData(data) ? adaptStudyToDevotional(data) : data;
 };
 
+const fetchMissingVerseText = async (devotional: Devotional): Promise<Devotional> => {
+  if (devotional.keyVerse && devotional.keyVerse.reference && !devotional.keyVerse.text) {
+    try {
+      let bibleId = devotional.bibleVersion || 'NKJV';
+
+      // Resolve abbreviation to actual ID if possible
+      const { API_CONFIG } = require('../../services/config');
+      if (API_CONFIG.BIBLE_API.versions[bibleId]) {
+          bibleId = API_CONFIG.BIBLE_API.versions[bibleId];
+      }
+
+      const verseData = await bibleApi.getFormattedVerse(bibleId, devotional.keyVerse.reference);
+      if (verseData && verseData.content) {
+        return {
+          ...devotional,
+          keyVerse: {
+            ...devotional.keyVerse,
+            text: verseData.content
+          }
+        };
+      }
+    } catch (e) {
+      console.error('Error fetching missing verse text:', e);
+    }
+  }
+  return devotional;
+};
+
 const loadDevotional = async (): Promise<void> => {
   try {
     // First, try to get from the in-memory store (most recent)
     let storedData: DevotionalSource | null = store.getStoredDevotional();
     
     if (storedData && storedData.id === id) {
-      const devotionalData = resolveDevotional(storedData);
+      let devotionalData = resolveDevotional(storedData);
+      devotionalData = await fetchMissingVerseText(devotionalData);
       setDevotional(devotionalData);
       checkIfSaved(devotionalData.id);
       setLoading(false);
@@ -165,8 +239,8 @@ const loadDevotional = async (): Promise<void> => {
     
     if (cachedData) {
       if (cachedData.id === id) {
-        // Ensure we pass a Devotional to state setter
-        const devotionalData = resolveDevotional(cachedData);
+        let devotionalData = resolveDevotional(cachedData);
+        devotionalData = await fetchMissingVerseText(devotionalData);
         setDevotional(devotionalData);
         checkIfSaved(devotionalData.id);
         setLoading(false);
@@ -179,7 +253,8 @@ const loadDevotional = async (): Promise<void> => {
     if (saved && saved.length > 0) {
       let found: DevotionalSource | undefined = saved.find(item => item.id === id);
       if (found) {
-        const devotionalData = resolveDevotional(found);
+        let devotionalData = resolveDevotional(found);
+        devotionalData = await fetchMissingVerseText(devotionalData);
         setDevotional(devotionalData);
         setIsSaved(true);
         setLoading(false);
@@ -232,7 +307,7 @@ const loadDevotional = async (): Promise<void> => {
     try {
       const version: string = devotional.bibleVersion || 'KJV';
 
-      let shareContent: string = `📖 STUDY: ${devotional.topic}\n`;
+      let shareContent: string = `📖 ${devotional.topic?.startsWith('Insight:') ? 'INSIGHT' : 'STUDY'}: ${devotional.topic}\n`;
       if (devotional.date) {
         shareContent += `${new Date(devotional.date).toLocaleDateString()}\n`;
       }
@@ -244,7 +319,7 @@ const loadDevotional = async (): Promise<void> => {
       }
 
       if (devotional.content) {
-        shareContent += `📝 DEVOTIONAL CONTENT\n${devotional.content}\n\n`;
+        shareContent += `${devotional.topic?.startsWith('Insight:') ? '💡 AI INSIGHT' : '📝 DEVOTIONAL CONTENT'}\n${devotional.content}\n\n`;
       }
 
       if (devotional.historicalContext) {
@@ -281,16 +356,26 @@ const loadDevotional = async (): Promise<void> => {
   const captureAndShareImage = async (): Promise<void> => {
     try {
       if (viewShotRef.current) {
+        setIsSavingImage(true);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        // Delay to ensure rendering
+
+        // Delay to ensure the modal state is stable and rendering is complete
         setTimeout(async () => {
-          // @ts-ignore
-          const uri: string = await viewShotRef.current.capture();
-          await Sharing.shareAsync(uri);
-        }, 200);
+          try {
+            // @ts-ignore
+            const uri: string = await viewShotRef.current.capture();
+            await Sharing.shareAsync(uri);
+          } catch (e) {
+            console.error('Capture inner error:', e);
+            Alert.alert('Error', 'Failed to capture screen.');
+          } finally {
+            setIsSavingImage(false);
+          }
+        }, 500);
       }
     } catch (error) {
       console.error('Capture error:', error);
+      setIsSavingImage(false);
       Alert.alert('Error', 'Failed to generate share image.');
     }
   };
@@ -489,15 +574,15 @@ return (
     <View style={styles.contentSection}>
       <View style={styles.sectionHeader}>
         <Ionicons name="document-text" size={20} color={COLORS.gold} />
-        <Text style={styles.sectionTitle}>Exegesis & Study Notes</Text>
+        <Text style={styles.sectionTitle}>
+          {devotional.topic?.startsWith('Insight:') ? 'AI Verse Insight' : 'Exegesis & Study Notes'}
+        </Text>
       </View>
       <View style={styles.contentCard}>
         {devotional.content ? (
-          devotional.content.split('\n\n').map((paragraph, index) => (
-            <Text key={index} style={styles.contentText}>
-              {paragraph.trim()}
-            </Text>
-          ))
+          <Markdown style={markdownStyles}>
+            {devotional.content}
+          </Markdown>
         ) : (
           <Text style={styles.contentText}>Content loading...</Text>
         )}
@@ -686,11 +771,18 @@ return (
             </ScrollView>
 
             <TouchableOpacity
-              style={styles.confirmShareButton}
+              style={[styles.confirmShareButton, isSavingImage && { opacity: 0.7 }]}
               onPress={captureAndShareImage}
+              disabled={isSavingImage}
             >
-              <Ionicons name="share-social" size={22} color={COLORS.white} />
-              <Text style={styles.confirmShareText}>Share Now</Text>
+              {isSavingImage ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Ionicons name="share-social" size={22} color={COLORS.white} />
+              )}
+              <Text style={styles.confirmShareText}>
+                {isSavingImage ? 'Preparing Image...' : 'Share Now'}
+              </Text>
             </TouchableOpacity>
           </ScrollView>
         </View>

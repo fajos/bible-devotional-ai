@@ -22,8 +22,11 @@ export default function SettingsScreen() {
   const [clearingCache, setClearingCache] = useState(false);
   const [cacheSize, setCacheSize] = useState('0 B');
   const [devotionalReminder, setDevotionalReminder] = useState(false);
+  const [readingPlanReminder, setReadingPlanReminder] = useState(false);
   const [reminderTime, setReminderTime] = useState(new Date());
+  const [readingPlanTime, setReadingPlanTime] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerType, setPickerType] = useState<'devotional' | 'reading_plan'>('devotional');
 
   useEffect(() => {
     updateCacheSize();
@@ -33,6 +36,7 @@ export default function SettingsScreen() {
 
   const loadNotificationSettings = async () => {
     const settings = await notifications.getReminderSettings();
+
     if (settings[REMINDER_TYPES.DEVOTIONAL]) {
       setDevotionalReminder(settings[REMINDER_TYPES.DEVOTIONAL].enabled);
       if (settings[REMINDER_TYPES.DEVOTIONAL].hour !== undefined) {
@@ -42,10 +46,21 @@ export default function SettingsScreen() {
         setReminderTime(time);
       }
     }
+
+    if (settings[REMINDER_TYPES.READING_PLAN]) {
+      setReadingPlanReminder(settings[REMINDER_TYPES.READING_PLAN].enabled);
+      if (settings[REMINDER_TYPES.READING_PLAN].hour !== undefined) {
+        const time = new Date();
+        time.setHours(settings[REMINDER_TYPES.READING_PLAN].hour);
+        time.setMinutes(settings[REMINDER_TYPES.READING_PLAN].minute || 0);
+        setReadingPlanTime(time);
+      }
+    }
   };
 
   const toggleDevotionalReminder = async (value: boolean) => {
     if (value) {
+      setPickerType('devotional');
       setShowPicker(true);
     } else {
       await notifications.cancelReminder(REMINDER_TYPES.DEVOTIONAL);
@@ -53,24 +68,42 @@ export default function SettingsScreen() {
     }
   };
 
+  const toggleReadingPlanReminder = async (value: boolean) => {
+    if (value) {
+      setPickerType('reading_plan');
+      setShowPicker(true);
+    } else {
+      await notifications.cancelReminder(REMINDER_TYPES.READING_PLAN);
+      setReadingPlanReminder(false);
+    }
+  };
+
   const onTimeChange = async (event: DateTimePickerEvent, selectedDate?: Date) => {
     setShowPicker(Platform.OS === 'ios');
 
     if (event.type === 'set' && selectedDate) {
-      setReminderTime(selectedDate);
+      const type = pickerType === 'devotional' ? REMINDER_TYPES.DEVOTIONAL : REMINDER_TYPES.READING_PLAN;
+
+      if (pickerType === 'devotional') setReminderTime(selectedDate);
+      else setReadingPlanTime(selectedDate);
+
       const success = await notifications.scheduleDailyReminder(
-        REMINDER_TYPES.DEVOTIONAL,
+        type,
         selectedDate.getHours(),
         selectedDate.getMinutes()
       );
+
       if (success) {
-        setDevotionalReminder(true);
+        if (pickerType === 'devotional') setDevotionalReminder(true);
+        else setReadingPlanReminder(true);
       } else {
-        setDevotionalReminder(false);
+        if (pickerType === 'devotional') setDevotionalReminder(false);
+        else setReadingPlanReminder(false);
         Alert.alert('Permission Denied', 'Please enable notifications in settings.');
       }
-    } else if (event.type === 'dismissed' && !devotionalReminder) {
-      setDevotionalReminder(false);
+    } else if (event.type === 'dismissed') {
+      if (pickerType === 'devotional' && !devotionalReminder) setDevotionalReminder(false);
+      if (pickerType === 'reading_plan' && !readingPlanReminder) setReadingPlanReminder(false);
     }
   };
 
@@ -174,7 +207,7 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.switchContainer}>
             {devotionalReminder && (
-              <TouchableOpacity onPress={() => setShowPicker(true)} style={styles.timeDisplay}>
+              <TouchableOpacity onPress={() => { setPickerType('devotional'); setShowPicker(true); }} style={styles.timeDisplay}>
                 <Text style={styles.timeText}>
                   {reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
@@ -189,9 +222,31 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <Text style={styles.settingLabel}>Reading Plan Reminder</Text>
+            <Text style={styles.settingDescription}>Stay on track with your yearly journey</Text>
+          </View>
+          <View style={styles.switchContainer}>
+            {readingPlanReminder && (
+              <TouchableOpacity onPress={() => { setPickerType('reading_plan'); setShowPicker(true); }} style={styles.timeDisplay}>
+                <Text style={styles.timeText}>
+                  {readingPlanTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <Switch
+              value={readingPlanReminder}
+              onValueChange={toggleReadingPlanReminder}
+              trackColor={{ false: '#D1D1D1', true: COLORS.gold }}
+              thumbColor={COLORS.white}
+            />
+          </View>
+        </View>
+
         {showPicker && (
           <DateTimePicker
-            value={reminderTime}
+            value={pickerType === 'devotional' ? reminderTime : readingPlanTime}
             mode="time"
             is24Hour={false}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}

@@ -52,15 +52,22 @@ class BibleAPIService {
   // Get all available Bibles
   async getBibles() {
     try {
+      const cacheKey = 'bible_list_full';
+      const cached = await store.getCachedData(cacheKey);
+      if (cached) return cached;
+
       const versions = API_CONFIG.BIBLE_API.versions;
       const names = API_CONFIG.BIBLE_API.versionNames;
 
-      return Object.keys(versions).map(id => ({
+      const bibles = Object.keys(versions).map(id => ({
         id: versions[id],
         name: names[id],
         abbreviation: id,
         language: { name: 'English' }
       }));
+
+      await store.setCachedData(cacheKey, bibles);
+      return bibles;
     } catch (error) {
       console.error('Error fetching Bibles:', error);
       return [];
@@ -71,15 +78,92 @@ class BibleAPIService {
   async getBible(bibleId) {
     if (!bibleId) return null;
     const bibles = await this.getBibles();
-    return bibles.find(b => b.id === bibleId) || null;
+    // Try exact ID match first, then abbreviation match
+    const found = bibles.find(b => b.id === bibleId) || bibles.find(b => b.abbreviation === bibleId);
+    if (found) return found;
+
+    // Fallback: search in config if not in the list for some reason
+    const versions = API_CONFIG.BIBLE_API.versions;
+    const names = API_CONFIG.BIBLE_API.versionNames;
+
+    // Check if bibleId is an abbreviation
+    if (versions[bibleId]) {
+        return {
+            id: versions[bibleId],
+            name: names[bibleId],
+            abbreviation: bibleId,
+            language: { name: 'English' }
+        };
+    }
+
+    // Check if bibleId is a GH_ ID
+    const abbr = Object.keys(versions).find(key => versions[key] === bibleId);
+    if (abbr) {
+        return {
+            id: bibleId,
+            name: names[abbr],
+            abbreviation: abbr,
+            language: { name: 'English' }
+        };
+    }
+
+    return null;
+  }
+
+  // Search for verses by keyword
+  async search(bibleId, query, page = 1) {
+    if (!bibleId || !query) return { results: [], total_pages: 0 };
+    const activeBibleId = await this.resolveBibleId(bibleId);
+
+    // Local search not implemented for full Bible yet
+    if (activeBibleId === 'LOCAL_FLV') {
+        return { results: [], total_pages: 0, error: 'Search not available for local version' };
+    }
+
+    try {
+      const response = await fetch(`${BASE_URL}/search/${activeBibleId}/?search=${encodeURIComponent(query)}&page=${page}`);
+      if (!response.ok) return { results: [], total_pages: 0 };
+
+      const data = await response.json();
+      // Bolls search returns { results: [...], total_pages: X }
+      // Each result: { pk: verse_id, text: "...", book: book_id, chapter: chap_num, verse: verse_num }
+      return {
+        results: (data.results || []).map(r => ({
+          id: r.pk,
+          text: this.stripHtml(r.text),
+          bookId: r.book,
+          bookName: BIBLE_BOOKS_BY_ID[r.book] || `Book ${r.book}`,
+          chapter: r.chapter,
+          verse: r.verse,
+          reference: `${BIBLE_BOOKS_BY_ID[r.book] || r.book} ${r.chapter}:${r.verse}`
+        })),
+        totalPages: data.total_pages || 0,
+        totalResults: data.total_results || 0
+      };
+    } catch (error) {
+      console.error('Search error:', error);
+      return { results: [], total_pages: 0 };
+    }
+  }
+
+  // Resolve bibleId to internal ID if abbreviation was passed
+  async resolveBibleId(bibleId) {
+    if (!bibleId) return null;
+    if (bibleId.startsWith('GH_') || bibleId === 'LOCAL_FLV') return bibleId;
+
+    const bibles = await this.getBibles();
+    const found = bibles.find(b => b.abbreviation === bibleId);
+    return found ? found.id : bibleId;
   }
 
   // Get all books of a Bible
   async getBooks(bibleId) {
     if (!bibleId) return [];
 
+    const activeBibleId = await this.resolveBibleId(bibleId);
+
     // Handle local Bible
-    if (bibleId === 'LOCAL_FLV') {
+    if (activeBibleId === 'LOCAL_FLV') {
       const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
       return Object.keys(data).map((bookName, index) => {
         const bookChapters = Object.keys(data[bookName]).length;
@@ -98,13 +182,13 @@ class BibleAPIService {
     }
 
     // Handle GitHub Hosted Bible
-    if (bibleId.startsWith('GH_')) {
+    if (activeBibleId.startsWith('GH_')) {
         try {
-            const cacheKey = `books_github_${bibleId}`;
+            const cacheKey = `books_github_${activeBibleId}`;
             const cached = await store.getCachedData(cacheKey);
             if (cached) return cached;
 
-            const data = await this.getGitHubBibleData(bibleId);
+            const data = await this.getGitHubBibleData(activeBibleId);
             if (!data) return [];
 
             const books = Object.keys(data).map(bookName => {
@@ -134,7 +218,7 @@ class BibleAPIService {
     }
 
     try {
-      const cacheKey = `books_bolls_${bibleId}`;
+      const cacheKey = `books_bolls_${activeBibleId}`;
       const cached = await store.getCachedData(cacheKey);
 
       // Force refresh if cached data is missing chapters for first few books
@@ -147,20 +231,20 @@ class BibleAPIService {
         if (gen && gen.chapters > 0) {
            return cached;
         }
-        console.log(`Cache for ${bibleId} seems invalid (missing chapters), refreshing...`);
+        console.log(`Cache for ${activeBibleId} seems invalid (missing chapters), refreshing...`);
       }
 
-      const response = await fetch(`${BASE_URL}/get-books/${bibleId}/`);
+      const response = await fetch(`${BASE_URL}/get-books/${activeBibleId}/`);
       if (!response.ok) {
         if (response.status !== 404) {
-          console.error(`Bolls API fetch books failed for ${bibleId}: ${response.status}`);
+          console.error(`Bolls API fetch books failed for ${activeBibleId}: ${response.status}`);
         }
         return [];
       }
 
       const data = await response.json();
       if (!Array.isArray(data)) {
-        console.error(`Bolls API error: get-books for ${bibleId} returned non-array`, data);
+        console.error(`Bolls API error: get-books for ${activeBibleId} returned non-array`, data);
         return [];
       }
 
@@ -210,8 +294,9 @@ class BibleAPIService {
   // Get chapters of a book
   async getChapters(bibleId, bookId) {
     if (!bibleId || !bookId) return [];
+    const activeBibleId = await this.resolveBibleId(bibleId);
     try {
-      const books = await this.getBooks(bibleId);
+      const books = await this.getBooks(activeBibleId);
       if (!books || books.length === 0) return [];
 
       const search = String(bookId).toLowerCase();
@@ -256,8 +341,10 @@ class BibleAPIService {
   async getChapter(bibleId, bookId, chapterNumber) {
     if (!bibleId || !bookId || !chapterNumber) return null;
 
+    const activeBibleId = await this.resolveBibleId(bibleId);
+
     // Handle local Bible
-    if (bibleId === 'LOCAL_FLV') {
+    if (activeBibleId === 'LOCAL_FLV') {
       const data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
       let bookName = BIBLE_BOOKS_BY_ID[bookId];
 
@@ -277,13 +364,13 @@ class BibleAPIService {
     }
 
     // Handle GitHub Hosted Bible
-    if (bibleId.startsWith('GH_')) {
+    if (activeBibleId.startsWith('GH_')) {
         try {
-            const cacheKey = `content_github_${bibleId}_${bookId}_${chapterNumber}`;
+            const cacheKey = `content_github_${activeBibleId}_${bookId}_${chapterNumber}`;
             const cached = await store.getCachedData(cacheKey);
             if (cached) return cached;
 
-            const data = await this.getGitHubBibleData(bibleId);
+            const data = await this.getGitHubBibleData(activeBibleId);
             if (!data) return null;
 
             let bookName = BIBLE_BOOKS_BY_ID[bookId];
@@ -310,11 +397,11 @@ class BibleAPIService {
     }
 
     try {
-      const cacheKey = `content_bolls_${bibleId}_${bookId}_${chapterNumber}`;
+      const cacheKey = `content_bolls_${activeBibleId}_${bookId}_${chapterNumber}`;
       const cached = await store.getCachedData(cacheKey);
       if (cached) return cached;
 
-      const response = await fetch(`${BASE_URL}/get-chapter/${bibleId}/${bookId}/${chapterNumber}/`);
+      const response = await fetch(`${BASE_URL}/get-chapter/${activeBibleId}/${bookId}/${chapterNumber}/`);
       if (!response.ok) return null;
 
       const data = await response.json();
@@ -331,13 +418,14 @@ class BibleAPIService {
   // Get parsed verses for a chapter
   async getChapterVersesParsed(bibleId, bookId, chapterNumber) {
     try {
-      const data = await this.getChapter(bibleId, bookId, chapterNumber);
+      const activeBibleId = await this.resolveBibleId(bibleId);
+      const data = await this.getChapter(activeBibleId, bookId, chapterNumber);
       if (!data || !Array.isArray(data)) return [];
 
       return data.map(v => {
         if (!v) return null;
         return {
-          id: `${bibleId}.${bookId}.${chapterNumber}.${v.verse || '0'}`,
+          id: `${activeBibleId}.${bookId}.${chapterNumber}.${v.verse || '0'}`,
           number: (v.verse || '').toString(),
           text: this.stripHtml(v.text || '').trim()
         };
@@ -405,22 +493,24 @@ class BibleAPIService {
     try {
       if (!reference || !bibleId) return null;
 
+      const activeBibleId = await this.resolveBibleId(bibleId);
+
       // Clean reference from common AI additions
       const cleanRef = reference.replace(/\([^)]*\)/g, '').trim();
       const parsed = this.parseReference(cleanRef);
       if (!parsed) return null;
 
       // Special handling for local or GitHub Bible
-      if (bibleId === 'LOCAL_FLV' || bibleId.startsWith('GH_')) {
+      if (activeBibleId === 'LOCAL_FLV' || activeBibleId.startsWith('GH_')) {
           let data;
           let copyright;
 
-          if (bibleId === 'LOCAL_FLV') {
+          if (activeBibleId === 'LOCAL_FLV') {
               data = LOCAL_BIBLE_DATA['LOCAL_FLV'];
               copyright = "The Father's Life Version";
           } else {
-              data = await this.getGitHubBibleData(bibleId);
-              copyright = API_CONFIG.BIBLE_API.versionNames[Object.keys(API_CONFIG.BIBLE_API.versions).find(key => API_CONFIG.BIBLE_API.versions[key] === bibleId)];
+              data = await this.getGitHubBibleData(activeBibleId);
+              copyright = API_CONFIG.BIBLE_API.versionNames[Object.keys(API_CONFIG.BIBLE_API.versions).find(key => API_CONFIG.BIBLE_API.versions[key] === activeBibleId)];
           }
 
           if (!data) return null;
@@ -439,7 +529,7 @@ class BibleAPIService {
                       const verses = [];
                       for (let v = parsed.startVerse; v <= parsed.endVerse; v++) {
                           const vRaw = chapterData[v];
-                          const vText = bibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
+                          const vText = activeBibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
                           if (vText) verses.push({ text: vText, number: v });
                       }
                       const text = verses.map(v => v.text).join(' ');
@@ -453,7 +543,7 @@ class BibleAPIService {
                   } else {
                       // Single verse
                       const vRaw = chapterData[parsed.startVerse];
-                      const vText = bibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
+                      const vText = activeBibleId === 'LOCAL_FLV' ? this.cleanLocalText(vRaw) : this.stripHtml(vRaw || '');
                       if (!vText) return null;
                       return {
                           reference: reference,
@@ -466,7 +556,7 @@ class BibleAPIService {
               } else {
                   // Whole chapter
                   const verses = Object.keys(chapterData).map(v => ({
-                      text: bibleId === 'LOCAL_FLV' ? this.cleanLocalText(chapterData[v]) : this.stripHtml(chapterData[v] || ''),
+                      text: activeBibleId === 'LOCAL_FLV' ? this.cleanLocalText(chapterData[v]) : this.stripHtml(chapterData[v] || ''),
                       number: parseInt(v)
                   }));
                   const text = verses.map(v => v.text).join(' ');
@@ -482,7 +572,7 @@ class BibleAPIService {
           return null;
       }
 
-      const books = await this.getBooks(bibleId);
+      const books = await this.getBooks(activeBibleId);
       if (!books || books.length === 0) return null;
 
       const search = parsed.book.toLowerCase().trim();
@@ -514,7 +604,7 @@ class BibleAPIService {
         if (parsed.startVerse) {
           if (parsed.endVerse) {
             // Range
-            const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+            const chapter = await this.getChapter(activeBibleId, book.id, parsed.chapter);
             if (!chapter) return null;
 
             const filtered = chapter.filter(v => v.verse >= parsed.startVerse && v.verse <= parsed.endVerse);
@@ -529,9 +619,9 @@ class BibleAPIService {
             };
           } else {
             // Single verse
-            const response = await fetch(`${BASE_URL}/get-text/${bibleId}/${book.id}/${parsed.chapter}/${parsed.startVerse}/`);
+            const response = await fetch(`${BASE_URL}/get-text/${activeBibleId}/${book.id}/${parsed.chapter}/${parsed.startVerse}/`);
             if (!response.ok) {
-              const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+              const chapter = await this.getChapter(activeBibleId, book.id, parsed.chapter);
               const v = chapter?.find(v => v.verse === parsed.startVerse);
               if (!v) return null;
               return {
@@ -553,7 +643,7 @@ class BibleAPIService {
           }
         } else {
           // Whole chapter
-          const chapter = await this.getChapter(bibleId, book.id, parsed.chapter);
+          const chapter = await this.getChapter(activeBibleId, book.id, parsed.chapter);
           if (!chapter) return null;
           const text = chapter.map(v => this.stripHtml(v.text)).join(' ');
           return {
