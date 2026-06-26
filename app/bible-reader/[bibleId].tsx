@@ -22,11 +22,12 @@ import {
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
-import { COLORS, FONTS, SHADOWS } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, isTablet } from '../../constants/theme';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import bibleApi from '../../services/bibleApi';
 import openaiService from '../../services/openai';
 import store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -69,6 +70,7 @@ interface Highlight {
 }
 
 export default function BibleReaderScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const { bibleId, reference } = useLocalSearchParams<{ bibleId: string; reference?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -632,11 +634,11 @@ export default function BibleReaderScreen() {
   }, []);
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Custom Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: isDarkMode ? colors.surface : COLORS.primary }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={COLORS.gold} />
         </TouchableOpacity>
@@ -699,7 +701,7 @@ export default function BibleReaderScreen() {
             ref={scrollViewRef}
             contentContainerStyle={styles.readerContent}
           >
-            <Text style={styles.chapterHeader}>
+            <Text style={[styles.chapterHeader, { color: isDarkMode ? colors.gold : colors.primary }]}>
               {currentBook?.name} {currentChapter?.number}
             </Text>
 
@@ -724,9 +726,10 @@ export default function BibleReaderScreen() {
                       highlight && { backgroundColor: highlight.color },
                       isSearchHighlight && { backgroundColor: 'rgba(212, 175, 55, 0.4)' }
                     ]}>
-                      <Text style={styles.verseNumber}>{verse.number}</Text>
+                      <Text style={[styles.verseNumber, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{verse.number}</Text>
                       <Text style={[
                         styles.verseText,
+                        { color: colors.text },
                         isSelected && styles.selectedVerseUnderline
                       ]}>
                         {' '}{verse.text}
@@ -792,18 +795,18 @@ export default function BibleReaderScreen() {
           )}
 
           {/* Navigation Footer */}
-          <View style={styles.navFooter}>
+          <View style={[styles.navFooter, { backgroundColor: isDarkMode ? colors.surface : COLORS.primary }]}>
             {selectedVerses.length > 0 ? (
               <View style={styles.bulkHighlightToolbar}>
                 <TouchableOpacity
-                  style={styles.aiAssistButton}
+                  style={[styles.aiAssistButton, { backgroundColor: isDarkMode ? colors.primaryLight : COLORS.goldDark }]}
                   onPress={explainSelection}
                 >
                   <Ionicons name="sparkles" size={20} color={COLORS.white} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.aiAssistButton, { marginLeft: 10, backgroundColor: COLORS.primaryLight }]}
+                  style={[styles.aiAssistButton, { marginLeft: 10, backgroundColor: isDarkMode ? colors.primaryDark : COLORS.primaryLight }]}
                   onPress={() => setShareModalVisible(true)}
                 >
                   <Ionicons name="image-outline" size={20} color={COLORS.gold} />
@@ -823,11 +826,11 @@ export default function BibleReaderScreen() {
                       style={[
                         styles.toolbarColorCircle,
                         { backgroundColor: c.color },
-                        c.id === 'none' && styles.toolbarClearCircle
+                        c.id === 'none' && [styles.toolbarClearCircle, { backgroundColor: colors.offWhite }]
                       ]}
                       onPress={() => applyHighlight(c.color)}
                     >
-                      {c.id === 'none' && <Ionicons name="trash-outline" size={20} color={COLORS.gray} />}
+                      {c.id === 'none' && <Ionicons name="trash-outline" size={20} color={colors.textSecondary} />}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -836,7 +839,7 @@ export default function BibleReaderScreen() {
                   onPress={() => setSelectedVerses([])}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <Ionicons name="close" size={28} color={COLORS.grayLight} />
+                  <Ionicons name="close" size={28} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
             ) : (
@@ -910,21 +913,21 @@ export default function BibleReaderScreen() {
         onRequestClose={() => setAiModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { height: '70%' }]}>
-            <View style={styles.modalHeader}>
+          <View style={[styles.modalContent, { height: '70%', backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
               <View style={styles.aiTitleRow}>
                 <Ionicons name="sparkles" size={20} color={COLORS.goldDark} style={{ marginRight: 8 }} />
-                <Text style={styles.modalTitle}>AI Verse Insight</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>AI Verse Insight</Text>
               </View>
               <View style={styles.aiHeaderActions}>
                 <TouchableOpacity onPress={saveAiInsight} style={styles.aiHeaderButton}>
-                  <Ionicons name="bookmark-outline" size={20} color={COLORS.primary} />
+                  <Ionicons name="bookmark-outline" size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={shareAiInsight} style={styles.aiHeaderButton}>
-                  <Ionicons name="share-social-outline" size={20} color={COLORS.primary} />
+                  <Ionicons name="share-social-outline" size={20} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setAiModalVisible(false)} style={styles.aiHeaderButton}>
-                  <Ionicons name="close" size={24} color={COLORS.primary} />
+                  <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -936,7 +939,11 @@ export default function BibleReaderScreen() {
               </View>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Markdown style={markdownStyles}>
+                <Markdown style={{
+                  ...markdownStyles,
+                  body: { ...markdownStyles.body, color: colors.text },
+                  strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
+                }}>
                   {aiExplanation || ''}
                 </Markdown>
               </ScrollView>
@@ -953,17 +960,17 @@ export default function BibleReaderScreen() {
         onRequestClose={() => setShareModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { height: '80%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Share Verse Image</Text>
+          <View style={[styles.modalContent, { height: '80%', backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Share Verse Image</Text>
               <TouchableOpacity onPress={() => setShareModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.sharePreviewContainer}>
-                <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+                <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : colors.primary }]}>
                   {selectedBackground.type === 'image' && (
                     <Image
                       source={{ uri: selectedBackground.url }}
@@ -995,7 +1002,7 @@ export default function BibleReaderScreen() {
                 </View>
               </View>
 
-              <Text style={styles.sectionLabel}>Select Background</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Background</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -1023,7 +1030,7 @@ export default function BibleReaderScreen() {
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Font</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Font</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -1034,7 +1041,8 @@ export default function BibleReaderScreen() {
                     key={font.id}
                     style={[
                       styles.fontOptionCard,
-                      selectedFont.id === font.id && styles.fontOptionCardActive
+                      { backgroundColor: colors.offWhite },
+                      selectedFont.id === font.id && [styles.fontOptionCardActive, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]
                     ]}
                     onPress={() => {
                       Haptics.selectionAsync();
@@ -1043,7 +1051,7 @@ export default function BibleReaderScreen() {
                   >
                     <Text style={[
                       styles.fontOptionLabel,
-                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal', color: colors.text },
                       selectedFont.id === font.id && styles.fontOptionLabelActive
                     ]}>
                       {font.label}
@@ -1052,7 +1060,7 @@ export default function BibleReaderScreen() {
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Text Color</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -1096,10 +1104,10 @@ export default function BibleReaderScreen() {
         onRequestClose={() => setVerseSearchModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
               <View>
-                <Text style={styles.modalTitle}>Search in {bible?.abbreviation || 'Bible'}</Text>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>Search in {bible?.abbreviation || 'Bible'}</Text>
               </View>
               <TouchableOpacity onPress={() => {
                 setVerseSearchModalVisible(false);
@@ -1109,14 +1117,15 @@ export default function BibleReaderScreen() {
                   setVerseSearchTotalResults(0);
                 }
               }}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.verseSearchInputContainer}>
               <TextInput
-                style={styles.verseSearchInput}
+                style={[styles.verseSearchInput, { backgroundColor: colors.offWhite, color: colors.text, borderColor: colors.offWhite }]}
                 placeholder="Search keywords (e.g. 'grace', 'covenant')"
+                placeholderTextColor={colors.textSecondary}
                 value={verseSearchQuery}
                 onChangeText={(text) => {
                   setVerseSearchQuery(text);
@@ -1129,8 +1138,8 @@ export default function BibleReaderScreen() {
                 onSubmitEditing={handleVerseSearch}
                 autoFocus
               />
-              <TouchableOpacity style={styles.verseSearchButton} onPress={handleVerseSearch}>
-                <Ionicons name="search" size={20} color={COLORS.white} />
+              <TouchableOpacity style={[styles.verseSearchButton, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]} onPress={handleVerseSearch}>
+                <Ionicons name="search" size={20} color={isDarkMode ? colors.primary : COLORS.white} />
               </TouchableOpacity>
             </View>
 
@@ -1182,11 +1191,11 @@ export default function BibleReaderScreen() {
                 keyExtractor={(item, index) => `${item.id}-${index}`}
                 renderItem={({ item }) => (
                   <TouchableOpacity
-                    style={styles.searchResultItem}
+                    style={[styles.searchResultItem, { borderBottomColor: colors.offWhite }]}
                     onPress={() => navigateToSearchResult(item)}
                   >
-                    <Text style={styles.searchResultRef}>{item.reference}</Text>
-                    <Text style={styles.searchResultText} numberOfLines={3}>{item.text}</Text>
+                    <Text style={[styles.searchResultRef, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{item.reference}</Text>
+                    <Text style={[styles.searchResultText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
                   </TouchableOpacity>
                 )}
                 onEndReached={loadMoreVerseSearchResults}
@@ -1216,15 +1225,15 @@ export default function BibleReaderScreen() {
         onRequestClose={() => setSelectorVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
                 {selectorType === 'book' ? 'Select Book' :
                  selectorType === 'chapter' ? `Select Chapter: ${currentBook?.name}` :
                  'Select Version'}
               </Text>
               <TouchableOpacity onPress={() => setSelectorVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -1235,12 +1244,14 @@ export default function BibleReaderScreen() {
                     key={book.id}
                     style={[
                       styles.gridItem,
+                      { borderBottomColor: colors.offWhite },
                       currentBook?.id === book.id && styles.gridItemActive
                     ]}
                     onPress={() => selectBook(book)}
                   >
                     <Text style={[
                       styles.gridItemText,
+                      { color: colors.text },
                       currentBook?.id === book.id && styles.gridItemTextActive
                     ]}>
                       {book.name}
@@ -1253,12 +1264,14 @@ export default function BibleReaderScreen() {
                     key={chapter.id}
                     style={[
                       styles.chapterBox,
-                      currentChapter?.id === chapter.id && styles.chapterBoxActive
+                      { borderColor: colors.offWhite, backgroundColor: colors.offWhite },
+                      currentChapter?.id === chapter.id && [styles.chapterBoxActive, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]
                     ]}
                     onPress={() => selectChapter(chapter)}
                   >
                     <Text style={[
                       styles.chapterBoxText,
+                      { color: colors.text },
                       currentChapter?.id === chapter.id && styles.chapterBoxTextActive
                     ]}>
                       {chapter.number}
@@ -1271,6 +1284,7 @@ export default function BibleReaderScreen() {
                     key={b.id}
                     style={[
                       styles.gridItem,
+                      { borderBottomColor: colors.offWhite },
                       bible?.id === b.id && styles.gridItemActive
                     ]}
                     onPress={() => selectBible(b.id)}
@@ -1278,6 +1292,7 @@ export default function BibleReaderScreen() {
                     <View style={styles.versionItemRow}>
                       <Text style={[
                         styles.gridItemText,
+                        { color: colors.text },
                         bible?.id === b.id && styles.gridItemTextActive,
                         { fontWeight: 'bold' }
                       ]}>
@@ -1285,6 +1300,7 @@ export default function BibleReaderScreen() {
                       </Text>
                       <Text style={[
                         styles.versionFullName,
+                        { color: colors.textSecondary },
                         bible?.id === b.id && styles.gridItemTextActive
                       ]} numberOfLines={1}>
                         {b.name}
@@ -1368,6 +1384,9 @@ const styles = StyleSheet.create({
   readerContent: {
     padding: 24,
     paddingBottom: 100,
+    maxWidth: 800,
+    alignSelf: 'center',
+    width: '100%',
   },
   chapterHeader: {
     fontSize: 28,
@@ -1419,8 +1438,8 @@ const styles = StyleSheet.create({
   navFooter: {
     position: 'absolute',
     bottom: 30,
-    left: 20,
-    right: 20,
+    left: isTablet ? '20%' : 20,
+    right: isTablet ? '20%' : 20,
     backgroundColor: COLORS.primary,
     flexDirection: 'row',
     height: 60,

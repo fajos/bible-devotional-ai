@@ -1,4 +1,8 @@
 // constants/theme.js
+import { rf, moderateScale, isTablet } from '../utils/responsive';
+
+export { isTablet };
+
 export const COLORS = {
   // Primary palette
   primary: '#1B1B3A',      // Deep navy - main background
@@ -44,10 +48,10 @@ export const FONTS = {
     regular: 'serif',       // System serif as fallback
     bold: 'serif',
     size: {
-      small: 16,
-      medium: 18,
-      large: 22,
-      xlarge: 28,
+      small: rf(16),
+      medium: rf(18),
+      large: rf(22),
+      xlarge: rf(28),
     }
   },
   
@@ -57,23 +61,23 @@ export const FONTS = {
     medium: 'System',
     bold: 'System',
     size: {
-      tiny: 12,
-      small: 14,
-      medium: 16,
-      large: 18,
-      xlarge: 24,
-      title: 32,
+      tiny: rf(12),
+      small: rf(14),
+      medium: rf(16),
+      large: rf(18),
+      xlarge: rf(24),
+      title: rf(32),
     }
   }
 };
 
 export const SPACING = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
+  xs: moderateScale(4),
+  sm: moderateScale(8),
+  md: moderateScale(16),
+  lg: moderateScale(24),
+  xl: moderateScale(32),
+  xxl: moderateScale(48),
 };
 
 export const SHADOWS = {

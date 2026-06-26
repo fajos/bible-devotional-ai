@@ -21,6 +21,7 @@ const PRAYER_JOURNAL_FILE = 'prayer_journal.json';
 // Legacy keys for migration
 const FAVORITE_BIBLES_KEY = 'favorite_bibles';
 const LEGACY_SAVED_DEVOTIONALS_KEY = 'savedDevotionals';
+const PREFERRED_VERSION_KEY = 'preferred_bible_version';
 
 const BASE_DIR = Paths.document; // Persistent storage
 const BIBLE_CACHE_DIR = new Directory(Paths.cache, 'bible_cache');
@@ -40,6 +41,23 @@ export const clearStoredDevotional = () => {
 };
 
 // --- Favorite Bibles ---
+
+export const setPreferredBibleVersion = async (versionId) => {
+  try {
+    await AsyncStorage.setItem(PREFERRED_VERSION_KEY, versionId);
+  } catch (error) {
+    console.error('Error saving preferred version:', error);
+  }
+};
+
+export const getPreferredBibleVersion = async () => {
+  try {
+    const saved = await AsyncStorage.getItem(PREFERRED_VERSION_KEY);
+    return saved || 'NKJV'; // Default to NKJV
+  } catch (error) {
+    return 'NKJV';
+  }
+};
 
 export const setFavoriteBibles = async (bibles) => {
   try {

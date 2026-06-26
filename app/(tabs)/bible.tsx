@@ -13,10 +13,11 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
 import store from '../../services/store';
 import { API_CONFIG } from '../../services/config';
+import { useAppTheme } from '../../context/ThemeContext';
 
 interface Bible {
   id: string;
@@ -39,6 +40,7 @@ interface DownloadStatus {
 }
 
 export default function BibleScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [bibles, setBibles] = useState<Bible[]>([]);
@@ -180,24 +182,24 @@ export default function BibleScreen() {
     };
 
     return (
-      <View style={[styles.bibleCard, isFav && styles.bibleCardActive]}>
+      <View style={[styles.bibleCard, { backgroundColor: colors.surface }, isFav && styles.bibleCardActive]}>
         <TouchableOpacity
           style={styles.bibleInfo}
           onPress={navigateToBible}
         >
           <View style={styles.bibleTitleRow}>
-            <Text style={[styles.bibleName, isFav && styles.bibleNameActive]}>{item.name}</Text>
+            <Text style={[styles.bibleName, { color: colors.text }, isFav && styles.bibleNameActive]}>{item.name}</Text>
             <Ionicons
               name="chevron-forward"
               size={16}
-              color={isFav ? 'rgba(255,255,255,0.5)' : COLORS.grayLight}
+              color={isFav ? 'rgba(255,255,255,0.5)' : colors.textSecondary}
             />
           </View>
           <View style={styles.bibleMeta}>
-              <View style={[styles.badge, isFav && styles.badgeActive]}>
+              <View style={[styles.badge, { backgroundColor: isDarkMode ? colors.primaryLight : 'rgba(212, 175, 55, 0.1)' }, isFav && styles.badgeActive]}>
                   <Text style={[styles.badgeText, isFav && styles.badgeTextActive]}>{item.abbreviation}</Text>
               </View>
-              <Text style={[styles.languageText, isFav && styles.languageTextActive]}>{item.language.name}</Text>
+              <Text style={[styles.languageText, { color: colors.textSecondary }, isFav && styles.languageTextActive]}>{item.language.name}</Text>
               {isDownloaded && (
                 <View style={styles.downloadBadge}>
                   <Ionicons name="cloud-done" size={12} color={isFav ? COLORS.gold : COLORS.goldDark} />
@@ -243,7 +245,7 @@ export default function BibleScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Holy Bible</Text>
         <View style={styles.hintContainer}>
@@ -270,35 +272,36 @@ export default function BibleScreen() {
 
       {/* Quick Compare Tool */}
       {favorites.length > 0 && (
-        <View style={styles.quickCompareContainer}>
+        <View style={[styles.quickCompareContainer, { backgroundColor: colors.surface }]}>
           <Text style={styles.sectionLabel}>QUICK VERSE STUDY</Text>
           <View style={styles.quickCompareRow}>
             <TextInput
-              style={styles.quickCompareInput}
+              style={[styles.quickCompareInput, { backgroundColor: colors.offWhite, color: colors.text }]}
               placeholder="e.g. Romans 8:28"
               value={quickCompareRef}
               onChangeText={setQuickCompareRef}
-              placeholderTextColor={COLORS.gray}
+              placeholderTextColor={colors.textSecondary}
             />
             <TouchableOpacity
-              style={styles.quickCompareButton}
+              style={[styles.quickCompareButton, { backgroundColor: isDarkMode ? colors.primaryLight : colors.primary }]}
               onPress={handleQuickCompare}
             >
               <Text style={styles.quickCompareButtonText}>Compare</Text>
               <Ionicons name="arrow-forward" size={16} color={COLORS.white} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.quickCompareHint}>
+          <Text style={[styles.quickCompareHint, { color: colors.textSecondary }]}>
             Uses your {favorites.length} selected version{favorites.length > 1 ? 's' : ''}
           </Text>
         </View>
       )}
 
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={COLORS.gray} style={styles.searchIcon} />
+      <View style={[styles.searchContainer, { backgroundColor: colors.surface }]}>
+        <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.text }]}
           placeholder="Search versions (e.g. NIV, Spanish...)"
+          placeholderTextColor={colors.textSecondary}
           value={searchQuery}
           onChangeText={handleSearch}
         />
@@ -311,10 +314,13 @@ export default function BibleScreen() {
         </View>
       ) : (
         <FlatList
+          key={isTablet ? 'tablet' : 'phone'}
           data={filteredBibles}
+          numColumns={isTablet ? 2 : 1}
           keyExtractor={(item) => item.id}
           renderItem={renderBibleItem}
           contentContainerStyle={styles.listContent}
+          columnWrapperStyle={isTablet ? { gap: SPACING.md } : null}
           ListEmptyComponent={
             <View style={styles.center}>
             <Text style={styles.emptyText}>No versions found matching &quot;{searchQuery}&quot;</Text>
@@ -386,6 +392,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   bibleCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.white,

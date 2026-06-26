@@ -20,9 +20,10 @@ import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import * as store from '../../services/store';
 import bibleApi from '../../services/bibleApi';
+import { useAppTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -123,6 +124,7 @@ const markdownStyles = StyleSheet.create({
 });
 
 export default function DevotionalDetailScreen(): JSX.Element {
+    const { colors, isDarkMode } = useAppTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const insets = useSafeAreaInsets();
@@ -406,7 +408,7 @@ if (!devotional) {
 }
 
 return (
-  <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+  <ScrollView style={[styles.container, { backgroundColor: colors.background }]} contentContainerStyle={styles.contentContainer}>
     {/* Header Section */}
     <View style={styles.header}>
       <View style={[styles.headerOverlay, { paddingTop: insets.top + SPACING.md }]}>
@@ -432,7 +434,7 @@ return (
     </View>
 
     {/* Action Buttons */}
-    <View style={styles.actionsBar}>
+    <View style={[styles.actionsBar, { backgroundColor: colors.surface }]}>
       <TouchableOpacity
         style={[styles.actionButton, isSaved && styles.actionButtonActive]}
         onPress={toggleSave}
@@ -513,10 +515,10 @@ return (
       <View style={styles.keyVerseSection}>
         <View style={styles.keyVerseHeader}>
           <Ionicons name="bookmark" size={24} color={COLORS.gold} />
-          <Text style={styles.keyVerseTitle}>Key Verse</Text>
+          <Text style={[styles.keyVerseTitle, { color: colors.text }]}>Key Verse</Text>
         </View>
         <TouchableOpacity
-          style={styles.keyVerseCard}
+          style={[styles.keyVerseCard, { backgroundColor: colors.surface }]}
           onPress={() => {
             const reference = devotional.keyVerse?.reference;
             if (reference) {
@@ -526,21 +528,21 @@ return (
         >
           <View style={styles.keyVerseRefRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={styles.keyVerseReference}>
+              <Text style={[styles.keyVerseReference, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>
                 {devotional.keyVerse?.reference}
               </Text>
               <Text style={styles.versionTagSmall}>
                 ({devotional.bibleVersion || 'KJV'})
               </Text>
             </View>
-            <View style={styles.compareBadge}>
-              <Text style={styles.compareBadgeText}>COMPARE</Text>
-              <Ionicons name="chevron-forward" size={12} color={COLORS.gold} />
+            <View style={[styles.compareBadge, { backgroundColor: isDarkMode ? 'rgba(212, 175, 55, 0.2)' : 'rgba(212, 175, 55, 0.1)' }]}>
+              <Text style={[styles.compareBadgeText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>COMPARE</Text>
+              <Ionicons name="chevron-forward" size={12} color={isDarkMode ? colors.gold : COLORS.gold} />
             </View>
           </View>
           {devotional.keyVerse.text ? (
             <Text
-              style={styles.keyVerseText}
+              style={[styles.keyVerseText, { color: colors.text }]}
               numberOfLines={6}
               ellipsizeMode="tail"
             >
@@ -559,21 +561,21 @@ return (
     {(devotional.historicalContext || devotional.theologicalInsight) && (
       <View style={styles.contextSection}>
         {devotional.historicalContext && (
-          <View style={styles.contextCard}>
+          <View style={[styles.contextCard, { backgroundColor: colors.surface }]}>
             <View style={styles.sectionHeader}>
               <Ionicons name="map" size={20} color={COLORS.gold} />
-              <Text style={styles.sectionTitle}>Historical Context</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Historical Context</Text>
             </View>
-            <Text style={styles.contextText}>{devotional.historicalContext}</Text>
+            <Text style={[styles.contextText, { color: colors.textSecondary }]}>{devotional.historicalContext}</Text>
           </View>
         )}
         {devotional.theologicalInsight && (
-          <View style={[styles.contextCard, { marginTop: SPACING.md }]}>
+          <View style={[styles.contextCard, { marginTop: SPACING.md, backgroundColor: colors.surface }]}>
             <View style={styles.sectionHeader}>
               <Ionicons name="infinite" size={20} color={COLORS.gold} />
-              <Text style={styles.sectionTitle}>Theological Insight</Text>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Theological Insight</Text>
             </View>
-            <Text style={styles.contextText}>{devotional.theologicalInsight}</Text>
+            <Text style={[styles.contextText, { color: colors.textSecondary }]}>{devotional.theologicalInsight}</Text>
           </View>
         )}
       </View>
@@ -583,17 +585,21 @@ return (
     <View style={styles.contentSection}>
       <View style={styles.sectionHeader}>
         <Ionicons name="document-text" size={20} color={COLORS.gold} />
-        <Text style={styles.sectionTitle}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>
           {devotional.topic?.startsWith('Insight:') ? 'AI Verse Insight' : 'Exegesis & Study Notes'}
         </Text>
       </View>
-      <View style={styles.contentCard}>
+      <View style={[styles.contentCard, { backgroundColor: colors.surface }]}>
         {devotional.content ? (
-          <Markdown style={markdownStyles}>
+          <Markdown style={{
+            ...markdownStyles,
+            body: { ...markdownStyles.body, color: colors.text },
+            strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
+          }}>
             {devotional.content}
           </Markdown>
         ) : (
-          <Text style={styles.contentText}>Content loading...</Text>
+          <Text style={[styles.contentText, { color: colors.textSecondary }]}>Content loading...</Text>
         )}
       </View>
     </View>
@@ -603,19 +609,19 @@ return (
       <View style={styles.synthesisSection}>
         <View style={styles.sectionHeader}>
           <Ionicons name="git-compare" size={20} color={COLORS.gold} />
-          <Text style={styles.sectionTitle}>OT Shadow & NT Fulfillment</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>OT Shadow & NT Fulfillment</Text>
         </View>
-        <View style={styles.synthesisCard}>
+        <View style={[styles.synthesisCard, { backgroundColor: isDarkMode ? colors.surface : COLORS.primaryLight }]}>
           {devotional.oldTestamentShadows && (
             <View style={styles.synthesisBox}>
               <Text style={styles.synthesisLabel}>OLD TESTAMENT SHADOW</Text>
-              <Text style={styles.synthesisText}>{devotional.oldTestamentShadows}</Text>
+              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>{devotional.oldTestamentShadows}</Text>
             </View>
           )}
           {devotional.newTestamentFulfillment && (
             <View style={[styles.synthesisBox, { borderTopWidth: 1, borderTopColor: 'rgba(212, 175, 55, 0.2)', paddingTop: SPACING.md, marginTop: SPACING.md }]}>
               <Text style={styles.synthesisLabel}>NEW TESTAMENT FULFILLMENT</Text>
-              <Text style={styles.synthesisText}>{devotional.newTestamentFulfillment}</Text>
+              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>{devotional.newTestamentFulfillment}</Text>
             </View>
           )}
         </View>
@@ -627,22 +633,22 @@ return (
       <View style={styles.crossRefSection}>
         <View style={styles.sectionHeader}>
           <Ionicons name="git-branch" size={20} color={COLORS.gold} />
-          <Text style={styles.sectionTitle}>Bible Verses</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Bible Verses</Text>
         </View>
         {devotional.verses.map((verse, index) => (
-          <View key={index} style={styles.crossRefCard}>
+          <View key={index} style={[styles.crossRefCard, { backgroundColor: colors.surface }]}>
             <View style={styles.crossRefNumber}>
               <Text style={styles.crossRefNumberText}>{index + 1}</Text>
             </View>
             <View style={styles.crossRefContent}>
-              <Text style={styles.crossRefReference}>{verse.reference}</Text>
+              <Text style={[styles.crossRefReference, { color: colors.text }]}>{verse.reference}</Text>
               {verse.text && (
-                <Text style={styles.crossRefText} numberOfLines={3}>
+                <Text style={[styles.crossRefText, { color: colors.textSecondary }]} numberOfLines={3}>
                   "{verse.text}"
                 </Text>
               )}
               {verse.explanation && verse.explanation !== verse.text && (
-                <Text style={styles.crossRefExplanation}>{verse.explanation}</Text>
+                <Text style={[styles.crossRefExplanation, { color: colors.textSecondary, opacity: 0.8 }]}>{verse.explanation}</Text>
               )}
             </View>
           </View>
@@ -655,11 +661,11 @@ return (
       <View style={styles.applicationSection}>
         <View style={styles.sectionHeader}>
           <Ionicons name="bulb" size={20} color={COLORS.gold} />
-          <Text style={styles.sectionTitle}>Life Application</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Life Application</Text>
         </View>
-        <View style={styles.applicationCard}>
+        <View style={[styles.applicationCard, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}>
           {devotional.application.split('\n\n').map((paragraph, index) => (
-            <Text key={index} style={styles.applicationText}>
+            <Text key={index} style={[styles.applicationText, { color: isDarkMode ? colors.text : COLORS.white }]}>
               {paragraph.trim()}
             </Text>
           ))}
@@ -672,11 +678,11 @@ return (
       <View style={styles.prayerSection}>
         <View style={styles.sectionHeader}>
           <Ionicons name="hand-left" size={20} color={COLORS.gold} />
-          <Text style={styles.sectionTitle}>Prayer</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Prayer</Text>
         </View>
-        <View style={styles.prayerCard}>
+        <View style={[styles.prayerCard, { backgroundColor: colors.surface }]}>
           {devotional.prayer.split('\n\n').map((paragraph, index) => (
-            <Text key={index} style={styles.prayerText}>
+            <Text key={index} style={[styles.prayerText, { color: colors.text }]}>
               {paragraph.trim()}
             </Text>
           ))}
@@ -689,12 +695,12 @@ return (
       <View style={styles.questionsSection}>
         <View style={styles.sectionHeader}>
           <Ionicons name="chatbubbles" size={20} color={COLORS.gold} />
-          <Text style={styles.sectionTitle}>Reflection Questions</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Reflection Questions</Text>
         </View>
         {devotional.questions.map((question, index) => (
-          <View key={index} style={styles.questionCard}>
+          <View key={index} style={[styles.questionCard, { backgroundColor: colors.surface }]}>
             <Text style={styles.questionNumber}>Q{index + 1}</Text>
-            <Text style={styles.questionText}>{question}</Text>
+            <Text style={[styles.questionText, { color: colors.textSecondary }]}>{question}</Text>
           </View>
         ))}
       </View>
@@ -703,11 +709,11 @@ return (
     {/* Bottom Actions */}
     <View style={styles.bottomActions}>
       <TouchableOpacity
-        style={styles.generateNewButton}
+        style={[styles.generateNewButton, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}
         onPress={() => router.push('/search')}
       >
-        <Ionicons name="search" size={20} color={COLORS.white} />
-        <Text style={styles.generateNewText}>Search New Topic</Text>
+        <Ionicons name="search" size={20} color={isDarkMode ? colors.gold : COLORS.white} />
+        <Text style={[styles.generateNewText, { color: isDarkMode ? colors.gold : COLORS.white }]}>Search New Topic</Text>
       </TouchableOpacity>
     </View>
 
@@ -719,17 +725,17 @@ return (
       onRequestClose={() => setShareModalVisible(false)}
     >
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { height: '80%' }]}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Share Verse Image</Text>
+        <View style={[styles.modalContent, { height: '80%', backgroundColor: colors.surface }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Share Verse Image</Text>
             <TouchableOpacity onPress={() => setShareModalVisible(false)}>
-              <Ionicons name="close" size={24} color={COLORS.primary} />
+              <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.sharePreviewContainer}>
-              <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+              <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : colors.primary }]}>
                 {selectedBackground.type === 'image' && (
                   <Image
                     source={{ uri: selectedBackground.url }}
@@ -761,7 +767,7 @@ return (
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>Select Background</Text>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Background</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -784,12 +790,12 @@ return (
                   ) : (
                     <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
                   )}
-                  <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                  <Text style={[styles.bgOptionLabel, { color: colors.textSecondary }]}>{bg.label}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
 
-            <Text style={styles.sectionLabel}>Select Font</Text>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Font</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -800,7 +806,8 @@ return (
                   key={font.id}
                   style={[
                     styles.fontOptionCard,
-                    selectedFont.id === font.id && styles.fontOptionCardActive
+                    { backgroundColor: colors.offWhite },
+                    selectedFont.id === font.id && [styles.fontOptionCardActive, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]
                   ]}
                   onPress={() => {
                     Haptics.selectionAsync();
@@ -809,7 +816,7 @@ return (
                 >
                   <Text style={[
                     styles.fontOptionLabel,
-                    { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                    { fontFamily: font.family, fontStyle: (font as any).style || 'normal', color: colors.text },
                     selectedFont.id === font.id && styles.fontOptionLabelActive
                   ]}>
                     {font.label}
@@ -818,7 +825,7 @@ return (
               ))}
             </ScrollView>
 
-            <Text style={styles.sectionLabel}>Select Text Color</Text>
+            <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Text Color</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -837,7 +844,7 @@ return (
                   }}
                 >
                   <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
-                  <Text style={styles.colorOptionLabel}>{color.label}</Text>
+                  <Text style={[styles.colorOptionLabel, { color: colors.textSecondary }]}>{color.label}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -871,6 +878,9 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingBottom: SPACING.xxl,
+    maxWidth: 800,
+    alignSelf: 'center',
+    width: '100%',
   },
   
   // Loading & Error

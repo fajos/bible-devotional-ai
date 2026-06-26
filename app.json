@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Bible Devotional AI",
+    "name": "Bible Devotional AI: Deep Study",
     "slug": "bible-devotional-ai",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,14 +9,14 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.bibledevotionalai"
+      "bundleIdentifier": "com.fajostech.bibledevotionalai"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#1a1a2e"
       },
-      "package": "com.yourcompany.bibledevotionalai",
+      "package": "com.fajostech.bibledevotionalai",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",

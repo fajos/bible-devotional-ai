@@ -16,15 +16,17 @@ import {
 import { Image } from 'expo-image';
 import ViewShot from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import { BIBLE_IN_ONE_YEAR } from '../../constants/bibleInOneYear';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import openaiService from '../../services/openai';
 import * as store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
 export default function BibleInOneYearDayScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const { day } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -111,35 +113,38 @@ export default function BibleInOneYearDayScreen() {
   if (!dayData) return null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{
         title: `Day ${dayNum}`,
-        headerStyle: { backgroundColor: COLORS.primary },
+        headerStyle: { backgroundColor: isDarkMode ? colors.surface : COLORS.primary },
         headerTintColor: COLORS.gold,
       }} />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + SPACING.xl }]}>
-        <View style={styles.headerCard}>
-          <Text style={styles.dayTitle}>{dayData.title}</Text>
-          <View style={styles.divider} />
+        <View style={[styles.headerCard, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.dayTitle, { color: colors.text }]}>{dayData.title}</Text>
+          <View style={[styles.divider, { backgroundColor: colors.offWhite }]} />
 
           <Text style={styles.sectionTitle}>Daily Readings</Text>
           {dayData.readings.map((reading, idx) => (
             <TouchableOpacity
               key={idx}
-              style={styles.readingRow}
-              onPress={() => router.push(`/bible-reader/NKJV?reference=${encodeURIComponent(reading.ref)}`)}
+              style={[styles.readingRow, { backgroundColor: colors.offWhite }]}
+              onPress={async () => {
+                const version = await store.getPreferredBibleVersion();
+                router.push(`/bible-reader/${version}?reference=${encodeURIComponent(reading.ref)}`);
+              }}
             >
-              <View style={[styles.typeBadge, { backgroundColor: reading.type === 'NT' ? COLORS.gold : COLORS.primaryLight }]}>
+              <View style={[styles.typeBadge, { backgroundColor: reading.type === 'NT' ? COLORS.gold : (isDarkMode ? colors.primaryLight : COLORS.primaryLight) }]}>
                 <Text style={styles.typeText}>{reading.type}</Text>
               </View>
-              <Text style={styles.readingRef}>{reading.ref}</Text>
-              <Ionicons name="chevron-forward" size={18} color={COLORS.grayLight} />
+              <Text style={[styles.readingRef, { color: colors.text }]}>{reading.ref}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
             </TouchableOpacity>
           ))}
         </View>
 
-        <View style={styles.insightSection}>
+        <View style={[styles.insightSection, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}>
           <View style={styles.insightHeader}>
              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="sparkles" size={20} color={COLORS.gold} />
@@ -154,11 +159,11 @@ export default function BibleInOneYearDayScreen() {
 
           {aiInsight ? (
             <View style={styles.insightContent}>
-              <Text style={styles.insightText}>{getCleanText(aiInsight)}</Text>
+              <Text style={[styles.insightText, { color: isDarkMode ? colors.text : COLORS.white }]}>{getCleanText(aiInsight)}</Text>
             </View>
           ) : (
             <TouchableOpacity
-              style={styles.generateButton}
+              style={[styles.generateButton, { backgroundColor: isDarkMode ? colors.background : 'rgba(255,255,255,0.1)' }]}
               onPress={generateInsight}
               disabled={loadingInsight}
             >
@@ -175,7 +180,7 @@ export default function BibleInOneYearDayScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.completeButton, isCompleted && styles.completedButton]}
+          style={[styles.completeButton, isCompleted && [styles.completedButton, { backgroundColor: colors.grayLight }]]}
           onPress={async () => {
             if (!isCompleted) {
               const progress = await store.getCachedData('bible_year_progress') || [];
@@ -205,11 +210,11 @@ export default function BibleInOneYearDayScreen() {
         onRequestClose={() => setShareModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { height: '80%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Share Insight</Text>
+          <View style={[styles.modalContent, { height: '80%', backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Share Insight</Text>
               <TouchableOpacity onPress={() => setShareModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -218,7 +223,7 @@ export default function BibleInOneYearDayScreen() {
                 <ViewShot
                   ref={viewShotRef}
                   options={{ format: 'png', quality: 1.0 }}
-                  style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}
+                  style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : colors.primary }]}
                 >
                   {selectedBackground.type === 'image' && (
                     <Image
@@ -255,7 +260,7 @@ export default function BibleInOneYearDayScreen() {
                 </ViewShot>
               </View>
 
-              <Text style={styles.sectionLabel}>Select Background</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Background</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -280,7 +285,7 @@ export default function BibleInOneYearDayScreen() {
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Font</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Font</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -291,13 +296,14 @@ export default function BibleInOneYearDayScreen() {
                     key={font.id}
                     style={[
                       styles.fontOptionCard,
-                      selectedFont.id === font.id && styles.fontOptionCardActive
+                      { backgroundColor: colors.offWhite },
+                      selectedFont.id === font.id && [styles.fontOptionCardActive, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]
                     ]}
                     onPress={() => setSelectedFont(font)}
                   >
                     <Text style={[
                       styles.fontOptionLabel,
-                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal', color: colors.text },
                       selectedFont.id === font.id && styles.fontOptionLabelActive
                     ]}>
                       {font.label}
@@ -306,7 +312,7 @@ export default function BibleInOneYearDayScreen() {
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Text Color</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -349,6 +355,9 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: SPACING.lg,
+    maxWidth: 800,
+    alignSelf: 'center',
+    width: '100%',
   },
   headerCard: {
     backgroundColor: COLORS.white,

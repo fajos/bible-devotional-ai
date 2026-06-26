@@ -10,11 +10,13 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import { BIBLE_IN_ONE_YEAR, getDayOfYear } from '../../constants/bibleInOneYear';
 import * as store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
 
 export default function BibleInOneYearScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -72,8 +74,9 @@ export default function BibleInOneYearScreen() {
       <TouchableOpacity
         style={[
           styles.dayCard,
+          { backgroundColor: colors.surface },
           isCompleted && styles.dayCardCompleted,
-          isToday && styles.dayCardToday
+          isToday && [styles.dayCardToday, { backgroundColor: isDarkMode ? colors.primaryLight : '#FFFBEB' }]
         ]}
         onPress={() => router.push({
           pathname: '/bible-in-one-year/day',
@@ -81,10 +84,10 @@ export default function BibleInOneYearScreen() {
         })}
       >
         <View style={styles.dayInfo}>
-          <View style={[styles.dayBadge, isCompleted && styles.dayBadgeCompleted]}>
+          <View style={[styles.dayBadge, isCompleted && styles.dayBadgeCompleted, { backgroundColor: isDarkMode ? colors.primaryDark : COLORS.primaryLight }]}>
             <Text style={styles.dayBadgeText}>DAY {item.day}</Text>
           </View>
-          <Text style={styles.dayTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={[styles.dayTitle, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.dayReferences}>
             {item.readings.map(r => r.ref).join(' • ')}
           </Text>
@@ -97,7 +100,7 @@ export default function BibleInOneYearScreen() {
           <Ionicons
             name={isCompleted ? "checkmark-circle" : "ellipse-outline"}
             size={28}
-            color={isCompleted ? COLORS.success : COLORS.grayLight}
+            color={isCompleted ? COLORS.success : colors.textSecondary}
           />
         </TouchableOpacity>
       </TouchableOpacity>
@@ -105,22 +108,25 @@ export default function BibleInOneYearScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{
         title: 'Bible in One Year',
-        headerStyle: { backgroundColor: COLORS.primary },
+        headerStyle: { backgroundColor: isDarkMode ? colors.surface : COLORS.primary },
         headerTintColor: COLORS.gold,
       }} />
 
       <FlatList
         ref={flatListRef}
+        key={isTablet ? 'tablet' : 'phone'}
         data={BIBLE_IN_ONE_YEAR}
+        numColumns={isTablet ? 2 : 1}
         renderItem={renderItem}
         keyExtractor={item => item.day.toString()}
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: insets.bottom + SPACING.xl }
         ]}
+        columnWrapperStyle={isTablet ? { gap: SPACING.md } : null}
         getItemLayout={(data, index) => ({
           length: 112, // Exact card height + margin
           offset: 112 * index,
@@ -131,11 +137,11 @@ export default function BibleInOneYearScreen() {
           flatListRef.current?.scrollToOffset({ offset, animated: false });
         }}
         ListHeaderComponent={
-          <View style={styles.header}>
+          <View style={[styles.header, { backgroundColor: colors.surface }]}>
             <View style={styles.headerTopRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.headerTitle}>Your Yearly Journey</Text>
-                <Text style={styles.headerSubtitle}>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>Your Yearly Journey</Text>
+                <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
                   Walk through the entire Word of God, day by day.
                 </Text>
               </View>
@@ -149,11 +155,11 @@ export default function BibleInOneYearScreen() {
             </View>
 
             <View style={styles.progressContainer}>
-               <View style={styles.progressBar}>
+               <View style={[styles.progressBar, { backgroundColor: colors.offWhite }]}>
                   <View style={[styles.progressFill, { width: `${Math.min(100, (completedDays.length / 365) * 100)}%` }]} />
                </View>
                <View style={styles.progressLabelRow}>
-                  <Text style={styles.progressDetailText}>{completedDays.length} / 365 Days</Text>
+                  <Text style={[styles.progressDetailText, { color: colors.textSecondary }]}>{completedDays.length} / 365 Days</Text>
                   <Text style={styles.progressText}>{Math.round((completedDays.length / 365) * 100)}% Complete</Text>
                </View>
             </View>
@@ -242,6 +248,7 @@ const styles = StyleSheet.create({
     color: COLORS.goldDark,
   },
   dayCard: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.white,

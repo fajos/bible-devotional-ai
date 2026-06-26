@@ -1,11 +1,16 @@
 // app/(tabs)/index.js
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { JSX, useEffect, useState, type ReactElement } from 'react';
+import * as Sharing from 'expo-sharing';
+import { JSX, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
+  Modal,
   ScrollView,
   Share,
   StyleSheet,
@@ -13,12 +18,19 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import ViewShot from 'react-native-view-shot';
+import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
 import { generateDailyDevotional } from '../../services/devotionalEngine';
 import * as store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
+
+const MAX_CONTENT_WIDTH = 700;
+const contentWidth = isTablet ? Math.min(width * 0.8, MAX_CONTENT_WIDTH) : width;
+const sideMargin = (width - contentWidth) / 2;
 
 const MOODS: Mood[] = [
   { id: 'anxious', label: 'Anxious', icon: 'leaf-outline', color: '#4A90E2', verse: "Peace I leave with you; my peace I give you.", ref: "John 14:27" },
@@ -58,7 +70,7 @@ const DAILY_VERSES: DailyVerse[] = [
   { text: "In the beginning was the Word, and the Word was with God, and the Word was God.", ref: "John 1:1", version: "NKJV" },
   { text: "And the Word became flesh and dwelt among us, and we beheld His glory, the glory as of the only begotten of the Father, full of grace and truth.", ref: "John 1:14", version: "NKJV" },
   { text: "For by grace you have been saved through faith, and that not of yourselves; it is the gift of God, not of works, lest anyone should boast.", ref: "Ephesians 2:8-9", version: "NKJV" },
-  { text: "Bless the LORD, O my soul; And all that is within me, bless His holy name!", ref: "Psalm 103:1", version: "NKJV" },
+  { text: "Bless the LORD, O Soul; And all that is within me, bless His holy name!", ref: "Psalm 103:1", version: "NKJV" },
   { text: "Set your mind on things above, not on things on the earth.", ref: "Colossians 3:2", version: "NKJV" },
   { text: "Great is Your faithfulness.", ref: "Lamentations 3:23", version: "NKJV" },
   { text: "The LORD your God in your midst, The Mighty One, will save; He will rejoice over you with gladness, He will quiet you with His love, He will triumph over you with singing.", ref: "Zephaniah 3:17", version: "NKJV" },
@@ -91,13 +103,21 @@ interface Devotional {
 }
 
 export default function DailyDevotionalScreen(): JSX.Element {
+  const { colors, isDarkMode } = useAppTheme();
   const [devotional, setDevotional] = useState<Devotional | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMessage, setLoadingMessage] = useState<string>('Opening the Word...');
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [votd, setVotd] = useState<DailyVerse>(DAILY_VERSES[0]);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
+  const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
+  const [selectedTextColor, setSelectedTextColor] = useState(TEXT_COLOR_OPTIONS[0]);
+  const [isSavingImage, setIsSavingImage] = useState(false);
+
   const fadeAnim = useState(new Animated.Value(0))[0];
   const router = useRouter();
+  const viewShotRef = useRef<any>(null);
 
   useEffect(() => {
     // Determine Verse of the Day based on current date
@@ -108,13 +128,14 @@ export default function DailyDevotionalScreen(): JSX.Element {
       const baseVerse = DAILY_VERSES[index];
 
       try {
-        // Fetch the verse in NKJV from Bolls API
-        const dynamicVerse = await bibleAPIService.getFormattedVerse('NKJV', baseVerse.ref);
+        // Fetch the verse in preferred version from Bolls API
+        const version = await store.getPreferredBibleVersion();
+        const dynamicVerse = await bibleAPIService.getFormattedVerse(version, baseVerse.ref);
         if (dynamicVerse) {
           setVotd({
             text: dynamicVerse.content,
             ref: dynamicVerse.reference,
-            version: 'NKJV'
+            version: version
           });
         } else {
           setVotd(baseVerse);
@@ -167,23 +188,24 @@ export default function DailyDevotionalScreen(): JSX.Element {
     try {
       const today = new Date().toDateString();
       const cachedData = await store.getCachedData(`daily_${today}`);
-      
-      // Ensure we only use cached data if it's the correct version (NKJV)
-      if (cachedData && cachedData.bibleVersion === 'NKJV') {
+      const preferredVersion = await store.getPreferredBibleVersion();
+
+      // Ensure we only use cached data if it's the correct version
+      if (cachedData && cachedData.bibleVersion === preferredVersion) {
         setDevotional(cachedData);
         setLoading(false);
         return;
       } else {
         // Fallback to daily devotional file if no cache entry exists for today's version
         const dailyFile = await store.getDailyDevotional();
-        if (dailyFile && dailyFile.date === today && dailyFile.devotional?.bibleVersion === 'NKJV') {
+        if (dailyFile && dailyFile.date === today && dailyFile.devotional?.bibleVersion === preferredVersion) {
           setDevotional(dailyFile.devotional);
           setLoading(false);
           return;
         }
       }
     } catch (error) {
-      console.log('No valid NKJV cache found, generating new devotional');
+      console.log('No valid cache found, generating new devotional');
     }
     
     loadDevotional();
@@ -192,8 +214,9 @@ export default function DailyDevotionalScreen(): JSX.Element {
   const loadDevotional = async (): Promise<void> => {
     setLoading(true);
     try {
-      // Generate devotional with NKJV as default (now free via bolls.life)
-      const result = await generateDailyDevotional('NKJV');
+      const preferredVersion = await store.getPreferredBibleVersion();
+      // Generate devotional with preferred version
+      const result = await generateDailyDevotional(preferredVersion);
 
       // Ensure the result has the ID set correctly for routing
       if (!result.id) {
@@ -202,25 +225,71 @@ export default function DailyDevotionalScreen(): JSX.Element {
 
       setDevotional(result);
       
-      // Cache for today (no version in key since it's one per day)
+      // Cache for today
       const today = new Date().toDateString();
       await store.setCachedData(`daily_${today}`, result);
       await store.setDailyDevotional(today, result);
     } catch (error) {
       console.error('Failed to load devotional:', error);
-      alert('Unable to generate devotional. Please check your internet connection and try again.');
+      Alert.alert('Error', 'Unable to generate devotional. Please check your internet connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleShareVerse = async (verse: string, ref: string, version: string): Promise<void> => {
+    Alert.alert(
+      'Share Grace',
+      'How would you like to share this verse?',
+      [
+        {
+          text: 'Share as Text',
+          onPress: async () => {
+            try {
+              await Share.share({
+                message: `"${verse}"\n\n— ${ref} (${version})\n\nShared via Bible Devotional AI`,
+              });
+            } catch (error) {
+              console.error('Error sharing text:', error);
+            }
+          },
+        },
+        {
+          text: 'Share as Image',
+          onPress: () => setShareModalVisible(true),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const captureAndShareImage = async () => {
     try {
-      await Share.share({
-        message: `"${verse}" - ${ref} (${version})\n\nShared via Bible Devotional AI`,
-      });
+      if (viewShotRef.current) {
+        setIsSavingImage(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+        // Delay to ensure rendering
+        setTimeout(async () => {
+          try {
+            const uri = await viewShotRef.current.capture();
+            await Sharing.shareAsync(uri);
+          } catch (e) {
+            console.error('Capture inner error:', e);
+            Alert.alert('Error', 'Failed to capture image.');
+          } finally {
+            setIsSavingImage(false);
+          }
+        }, 500);
+      }
     } catch (error) {
-      console.error('Error sharing:', error);
+      console.error('Capture error:', error);
+      setIsSavingImage(false);
+      Alert.alert('Error', 'Failed to generate share image.');
     }
   };
 
@@ -241,163 +310,373 @@ export default function DailyDevotionalScreen(): JSX.Element {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-    >
-      {/* Date Header */}
-      <View style={styles.dateHeader}>
-        <Text style={styles.dateText}>
-          {new Date().toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          })}
-        </Text>
-        <Text style={styles.dateSubtext}>Your Daily Bread</Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {/* Date Header */}
+        <View style={styles.dateHeader}>
+          <Text style={styles.dateText}>
+            {new Date().toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+            })}
+          </Text>
+          <Text style={styles.dateSubtext}>Your Daily Bread</Text>
+        </View>
 
-      {/* Devotional Card */}
-      {devotional && (
-        <View style={styles.cardWrapper}>
-          <TouchableOpacity
-            style={styles.devotionalCard}
-            onPress={() => {
-  store.storeDevotional(devotional);
-  router.push(`/devotional/${devotional.id}`);
-}}
-            activeOpacity={0.95}
-          >
-            <View style={styles.goldAccent} />
-            <View style={styles.cardContent}>
-              <Text style={styles.topicTitle}>{devotional.topic}</Text>
+        {/* Devotional Card */}
+        {devotional && (
+          <View style={styles.cardWrapper}>
+            <TouchableOpacity
+              style={[styles.devotionalCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}
+              onPress={() => {
+                store.storeDevotional(devotional);
+                router.push(`/devotional/${devotional.id}`);
+              }}
+              activeOpacity={0.95}
+            >
+              <View style={styles.goldAccent} />
+              <View style={styles.cardContent}>
+                <Text style={[styles.topicTitle, { color: isDarkMode ? colors.gold : colors.primary }]}>{devotional.topic}</Text>
 
-              {devotional.keyVerse && (
-                <View style={styles.verseContainer}>
-                  <Ionicons name="bookmark" size={20} color={COLORS.gold} style={styles.verseIcon} />
-                  <View style={styles.verseTextContainer}>
-                    <View style={styles.verseRefRow}>
-                      <Text style={styles.verseReference}>{devotional.keyVerse.reference}</Text>
-                      <Text style={styles.versionTag}>{devotional.bibleVersion || 'NKJV'}</Text>
+                {devotional.keyVerse && (
+                  <View style={[styles.verseContainer, { backgroundColor: isDarkMode ? colors.primaryDark : colors.offWhite }]}>
+                    <Ionicons name="bookmark" size={20} color={COLORS.gold} style={styles.verseIcon} />
+                    <View style={styles.verseTextContainer}>
+                      <View style={styles.verseRefRow}>
+                        <Text style={[styles.verseReference, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{devotional.keyVerse.reference}</Text>
+                        <Text style={styles.versionTag}>{devotional.bibleVersion || 'NKJV'}</Text>
+                      </View>
+                      <Text style={[styles.verseText, { color: colors.text }]}>"{devotional.keyVerse.text}"</Text>
                     </View>
-                    <Text style={styles.verseText}>"{devotional.keyVerse.text}"</Text>
                   </View>
+                )}
+
+                <Text style={[styles.previewText, { color: colors.textSecondary }]} numberOfLines={6}>
+                  {devotional.content}
+                </Text>
+
+                <View style={[styles.readMoreContainer, { borderTopColor: colors.offWhite }]}>
+                  <Text style={styles.readMoreText}>Read Full Devotional</Text>
+                  <Ionicons name="arrow-forward" size={16} color={COLORS.gold} />
                 </View>
-              )}
-
-              <Text style={styles.previewText} numberOfLines={6}>
-                {devotional.content}
-              </Text>
-
-              <View style={styles.readMoreContainer}>
-                <Text style={styles.readMoreText}>Read Full Devotional</Text>
-                <Ionicons name="arrow-forward" size={16} color={COLORS.gold} />
               </View>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Quick Actions */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/search')}>
+            <View style={styles.actionIconContainer}>
+              <Ionicons name="search" size={24} color={COLORS.gold} />
             </View>
+            <Text style={[styles.actionText, { color: colors.text }]}>Search Topic</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/library')}>
+            <View style={styles.actionIconContainer}>
+              <Ionicons name="bookmarks" size={24} color={COLORS.gold} />
+            </View>
+            <Text style={[styles.actionText, { color: colors.text }]}>My Library</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/bible-in-one-year')}>
+            <View style={styles.actionIconContainer}>
+              <Ionicons name="calendar" size={24} color={COLORS.gold} />
+            </View>
+            <Text style={[styles.actionText, { color: colors.text }]}>Yearly Plan</Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      {/* Quick Actions */}
-      <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/search')}>
-          <View style={styles.actionIconContainer}>
-            <Ionicons name="search" size={24} color={COLORS.gold} />
+        {/* Today's Prayer */}
+        {devotional?.prayer && (
+          <View style={[styles.prayerContainer, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}>
+            <View style={styles.prayerHeader}>
+              <Ionicons name="hand-left" size={20} color={COLORS.gold} />
+              <Text style={styles.prayerTitle}>Today's Prayer</Text>
+            </View>
+            {devotional.prayer.split('\n\n').map((paragraph, index) => (
+              <Text key={index} style={[styles.prayerText, { color: isDarkMode ? colors.text : COLORS.white }]}>
+                {paragraph.trim()}
+              </Text>
+            ))}
           </View>
-          <Text style={styles.actionText}>Search Topic</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/library')}>
-          <View style={styles.actionIconContainer}>
-            <Ionicons name="bookmarks" size={24} color={COLORS.gold} />
-          </View>
-          <Text style={styles.actionText}>My Library</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/bible-in-one-year')}>
-          <View style={styles.actionIconContainer}>
-            <Ionicons name="calendar" size={24} color={COLORS.gold} />
-          </View>
-          <Text style={styles.actionText}>Yearly Plan</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Today's Prayer */}
-      {devotional?.prayer && (
-        <View style={styles.prayerContainer}>
-          <View style={styles.prayerHeader}>
-            <Ionicons name="hand-left" size={20} color={COLORS.gold} />
-            <Text style={styles.prayerTitle}>Today's Prayer</Text>
-          </View>
-          {devotional.prayer.split('\n\n').map((paragraph, index) => (
-            <Text key={index} style={styles.prayerText}>
-              {paragraph.trim()}
-            </Text>
-          ))}
-        </View>
-      )}
-
-      {/* Verse of the Day - Dynamic based on date */}
-      <View style={styles.dailyCard}>
-        <View style={styles.dailyBadge}>
-          <Text style={styles.dailyBadgeText}>VERSE OF THE DAY</Text>
-        </View>
-        <Text style={styles.dailyVerse}>
-          "{votd.text}"
-        </Text>
-        <Text style={styles.dailyRef}>{votd.ref} ({votd.version})</Text>
-        <TouchableOpacity
-          style={styles.shareButton}
-          onPress={() => handleShareVerse(votd.text, votd.ref, votd.version)}
-        >
-           <Ionicons name="share-social-outline" size={20} color={COLORS.gold} />
-           <Text style={styles.shareText}>Share Grace</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Mood Selector - Relocated from Explore */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>How are you feeling?</Text>
-        <View style={styles.moodGrid}>
-          {MOODS.map((mood) => (
-            <TouchableOpacity
-              key={mood.id}
-              style={[
-                styles.moodButton,
-                selectedMood?.id === mood.id && { backgroundColor: mood.color }
-              ]}
-              onPress={() => setSelectedMood(mood)}
-            >
-              <Ionicons
-                name={mood.icon as any}
-                size={24}
-                color={selectedMood?.id === mood.id ? COLORS.white : mood.color}
-              />
-              <Text style={[
-                styles.moodLabel,
-                selectedMood?.id === mood.id && { color: COLORS.white }
-              ]}>{mood.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {selectedMood && (
-          <Animated.View style={[styles.moodInspiration, { opacity: fadeAnim }]}>
-            <Ionicons name="quote-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
-            <Text style={styles.moodVerse}>{selectedMood.verse}</Text>
-            <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
-            <TouchableOpacity
-              style={[styles.studyLinkedButton, { borderColor: selectedMood.color }]}
-              onPress={() => router.push({ pathname: '/search', params: { q: `Overcoming ${selectedMood.label} with God's word` } })}
-            >
-              <Text style={[styles.studyLinkedText, { color: selectedMood.color }]}>Deep Dive Study</Text>
-              <Ionicons name="arrow-forward" size={16} color={selectedMood.color} />
-            </TouchableOpacity>
-          </Animated.View>
         )}
-      </View>
-    </ScrollView>
+
+        <View style={[styles.dailyCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}>
+          <View style={[styles.dailyBadge, { backgroundColor: isDarkMode ? 'rgba(212, 175, 55, 0.2)' : 'rgba(212, 175, 55, 0.1)' }]}>
+            <Text style={[styles.dailyBadgeText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>VERSE OF THE DAY</Text>
+          </View>
+          <Text style={[styles.dailyVerse, { color: colors.text }]}>
+            "{votd.text}"
+          </Text>
+          <Text style={[styles.dailyRef, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{votd.ref} ({votd.version})</Text>
+          <TouchableOpacity
+            style={[styles.shareButton, { backgroundColor: colors.surface }]}
+            onPress={() => handleShareVerse(votd.text, votd.ref, votd.version)}
+          >
+             <Ionicons name="share-social-outline" size={20} color={COLORS.gold} />
+             <Text style={[styles.shareText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>Share Grace</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Mood Selector - Relocated from Explore */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>How are you feeling?</Text>
+          <View style={styles.moodGrid}>
+            {MOODS.map((mood) => (
+              <TouchableOpacity
+                key={mood.id}
+                style={[
+                  styles.moodButton,
+                  { backgroundColor: colors.surface },
+                  selectedMood?.id === mood.id && { backgroundColor: mood.color }
+                ]}
+                onPress={() => setSelectedMood(mood)}
+              >
+                <Ionicons
+                  name={mood.icon as any}
+                  size={24}
+                  color={selectedMood?.id === mood.id ? COLORS.white : mood.color}
+                />
+                <Text style={[
+                  styles.moodLabel,
+                  { color: colors.textSecondary },
+                  selectedMood?.id === mood.id && { color: COLORS.white }
+                ]}>{mood.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {selectedMood && (
+            <Animated.View style={[styles.moodInspiration, { opacity: fadeAnim, backgroundColor: colors.surface }]}>
+              <Ionicons name="quote-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
+              <Text style={[styles.moodVerse, { color: colors.text }]}>{selectedMood.verse}</Text>
+              <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
+              <TouchableOpacity
+                style={[styles.studyLinkedButton, { borderColor: selectedMood.color }]}
+                onPress={() => router.push({ pathname: '/search', params: { q: `Overcoming ${selectedMood.label} with God's word` } })}
+              >
+                <Text style={[styles.studyLinkedText, { color: selectedMood.color }]}>Deep Dive Study</Text>
+                <Ionicons name="arrow-forward" size={16} color={selectedMood.color} />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Hidden ViewShot for Image Generation */}
+      <ViewShot
+        ref={viewShotRef}
+        options={{ format: 'png', quality: 1.0 }}
+        style={styles.shareCardContainer}
+      >
+        <View style={[styles.shareCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+          {selectedBackground.type === 'image' && (
+            <Image
+              source={{ uri: selectedBackground.url }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+            />
+          )}
+          <View style={[
+            styles.shareCardBorder,
+            { backgroundColor: selectedTextColor.color === '#FFFFFF' ? 'rgba(255,255,255,0.1)' : 'transparent' }
+          ]}>
+            <View style={styles.shareCardHeader}>
+              <Text style={[styles.shareCardBadge, { color: selectedTextColor.color, borderColor: selectedTextColor.color }]}>
+                VERSE OF THE DAY
+              </Text>
+            </View>
+
+            <View style={styles.shareCardBody}>
+              <Text style={[
+                styles.shareCardText,
+                {
+                  color: selectedTextColor.color,
+                  fontFamily: selectedFont.family,
+                  fontStyle: (selectedFont as any).style || 'normal'
+                }
+              ]}>
+                "{votd.text}"
+              </Text>
+
+              <View style={[styles.shareCardDivider, { backgroundColor: selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color }]} />
+
+              <Text style={[styles.shareCardReference, { color: selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color }]}>
+                {votd.ref}
+              </Text>
+              <Text style={[styles.shareCardVersion, { color: selectedTextColor.color, opacity: 0.6 }]}>
+                {votd.version}
+              </Text>
+            </View>
+
+            <View style={styles.shareCardFooter}>
+              <Ionicons name="sparkles" size={24} color={selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color} />
+              <Text style={[styles.shareCardAppName, { color: selectedTextColor.color, opacity: 0.7 }]}>BIBLE DEVOTIONAL AI</Text>
+            </View>
+          </View>
+        </View>
+      </ViewShot>
+
+      {/* Share Modal */}
+      <Modal
+        visible={shareModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShareModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { height: '80%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Share Verse Image</Text>
+              <TouchableOpacity onPress={() => setShareModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.sharePreviewContainer}>
+                <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+                  {selectedBackground.type === 'image' && (
+                    <Image
+                      source={{ uri: selectedBackground.url }}
+                      style={StyleSheet.absoluteFill}
+                      contentFit="cover"
+                    />
+                  )}
+                  <View style={[
+                    styles.sharePreviewCardBorder,
+                    { backgroundColor: selectedTextColor.color === '#FFFFFF' ? 'rgba(255,255,255,0.1)' : 'transparent' }
+                  ]}>
+                    <Text style={[styles.sharePreviewBadge, { color: selectedTextColor.color, borderColor: selectedTextColor.color }]}>
+                      VERSE OF THE DAY
+                    </Text>
+                    <Text
+                      style={[
+                        styles.sharePreviewText,
+                        {
+                          color: selectedTextColor.color,
+                          fontFamily: selectedFont.family,
+                          fontStyle: (selectedFont as any).style || 'normal'
+                        }
+                      ]}
+                      numberOfLines={6}
+                    >
+                      "{votd.text}"
+                    </Text>
+                    <Text style={[styles.sharePreviewRef, { color: selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color }]}>
+                      {votd.ref}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.sectionLabel}>Select Background</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {BACKGROUND_OPTIONS.map((bg) => (
+                  <TouchableOpacity
+                    key={bg.id}
+                    style={[
+                      styles.bgOptionCard,
+                      selectedBackground.id === bg.id && styles.bgOptionCardActive
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedBackground(bg);
+                    }}
+                  >
+                    {bg.type === 'image' ? (
+                      <Image source={{ uri: bg.url }} style={styles.bgOptionThumb} />
+                    ) : (
+                      <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
+                    )}
+                    <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.sectionLabel}>Select Font</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <TouchableOpacity
+                    key={font.id}
+                    style={[
+                      styles.fontOptionCard,
+                      selectedFont.id === font.id && styles.fontOptionCardActive
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedFont(font);
+                    }}
+                  >
+                    <Text style={[
+                      styles.fontOptionLabel,
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      selectedFont.id === font.id && styles.fontOptionLabelActive
+                    ]}>
+                      {font.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {TEXT_COLOR_OPTIONS.map((color) => (
+                  <TouchableOpacity
+                    key={color.id}
+                    style={[
+                      styles.colorOptionCard,
+                      selectedTextColor.id === color.id && styles.colorOptionCardActive
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedTextColor(color);
+                    }}
+                  >
+                    <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
+                    <Text style={styles.colorOptionLabel}>{color.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[styles.confirmShareButton, isSavingImage && { opacity: 0.7 }]}
+                onPress={captureAndShareImage}
+                disabled={isSavingImage}
+              >
+                {isSavingImage ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Ionicons name="share-social" size={22} color={COLORS.white} />
+                )}
+                <Text style={styles.confirmShareText}>
+                  {isSavingImage ? 'Preparing Image...' : 'Share Now'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -458,8 +737,10 @@ const styles = StyleSheet.create({
   
   // Devotional Card
   cardWrapper: {
-    marginHorizontal: SPACING.md,
+    marginHorizontal: isTablet ? sideMargin : SPACING.md,
     marginTop: -30,
+    alignSelf: 'center',
+    width: isTablet ? contentWidth : '92%',
   },
   devotionalCard: {
     backgroundColor: COLORS.parchment,
@@ -562,7 +843,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: SPACING.xl,
-    marginHorizontal: SPACING.md,
+    marginHorizontal: isTablet ? sideMargin : SPACING.md,
+    alignSelf: 'center',
+    width: isTablet ? contentWidth : '92%',
   },
   actionButton: {
     alignItems: 'center',
@@ -624,13 +907,15 @@ const styles = StyleSheet.create({
   
   // Prayer
   prayerContainer: {
-    marginHorizontal: SPACING.md,
+    marginHorizontal: isTablet ? sideMargin : SPACING.md,
     marginTop: SPACING.lg,
     backgroundColor: COLORS.primary,
     borderRadius: 15,
     padding: SPACING.lg,
     borderLeftWidth: 4,
     borderLeftColor: COLORS.gold,
+    alignSelf: 'center',
+    width: isTablet ? contentWidth : '92%',
   },
   prayerHeader: {
     flexDirection: 'row',
@@ -654,7 +939,7 @@ const styles = StyleSheet.create({
   // Verse of the Day
   dailyCard: {
     marginTop: SPACING.xl,
-    marginHorizontal: SPACING.md,
+    marginHorizontal: isTablet ? sideMargin : SPACING.md,
     backgroundColor: COLORS.parchment,
     borderRadius: 20,
     padding: SPACING.xl,
@@ -662,6 +947,8 @@ const styles = StyleSheet.create({
     ...SHADOWS.medium,
     borderWidth: 1,
     borderColor: COLORS.parchmentDark,
+    alignSelf: 'center',
+    width: isTablet ? contentWidth : '92%',
   },
   dailyBadge: {
     backgroundColor: 'rgba(212, 175, 55, 0.1)',
@@ -712,20 +999,25 @@ const styles = StyleSheet.create({
   // Mood Section
   section: {
     marginTop: SPACING.xl,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: isTablet ? sideMargin : SPACING.md,
+    alignSelf: 'center',
+    width: '100%',
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: COLORS.primary,
     marginBottom: SPACING.md,
+    textAlign: isTablet ? 'center' : 'left',
   },
   moodGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    width: isTablet ? contentWidth : '100%',
+    alignSelf: 'center',
   },
   moodButton: {
-    width: (width - 64) / 4,
+    width: isTablet ? (contentWidth - 64) / 4 : (width - 64) / 4,
     aspectRatio: 1,
     backgroundColor: COLORS.white,
     borderRadius: 16,
@@ -746,6 +1038,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     ...SHADOWS.small,
     alignItems: 'center',
+    width: isTablet ? contentWidth : '100%',
+    alignSelf: 'center',
   },
   quoteIcon: {
     marginBottom: 8,
@@ -776,5 +1070,239 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginRight: 4,
+  },
+  // Share Card Styles
+  shareCardContainer: {
+    position: 'absolute',
+    left: -3000,
+    width: 1080,
+  },
+  shareCard: {
+    backgroundColor: COLORS.primary,
+    padding: 40,
+    width: 1080,
+    height: 1350, // 4:5 aspect ratio
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardBorder: {
+    flex: 1,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: 'rgba(212, 175, 55, 0.5)',
+    borderRadius: 20,
+    padding: 60,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareCardHeader: {
+    alignItems: 'center',
+  },
+  shareCardBadge: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 6,
+    paddingHorizontal: 30,
+    paddingVertical: 10,
+    borderWidth: 2,
+    borderRadius: 10,
+  },
+  shareCardBody: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingVertical: 40,
+  },
+  shareCardText: {
+    fontSize: 58,
+    textAlign: 'center',
+    lineHeight: 88,
+    marginBottom: 40,
+  },
+  shareCardDivider: {
+    width: 150,
+    height: 4,
+    marginVertical: 40,
+    borderRadius: 2,
+  },
+  shareCardReference: {
+    fontSize: 48,
+    fontWeight: '800',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  shareCardVersion: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 10,
+    letterSpacing: 4,
+  },
+  shareCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  shareCardAppName: {
+    fontSize: 24,
+    fontWeight: '800',
+    marginLeft: 15,
+    letterSpacing: 6,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  sharePreviewContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  sharePreviewCard: {
+    width: width * 0.7,
+    aspectRatio: 4/5,
+    borderRadius: 12,
+    overflow: 'hidden',
+    ...SHADOWS.medium,
+  },
+  sharePreviewCardBorder: {
+    flex: 1,
+    margin: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.4)',
+    borderRadius: 8,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sharePreviewBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: 15,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderRadius: 4,
+  },
+  sharePreviewText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  sharePreviewRef: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 15,
+    letterSpacing: 1,
+  },
+  sectionLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginBottom: 12,
+  },
+  bgOptionsScroll: {
+    paddingBottom: 10,
+  },
+  bgOptionCard: {
+    width: 80,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bgOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  bgOptionThumb: {
+    width: 70,
+    height: 70,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    marginBottom: 6,
+  },
+  bgOptionLabel: {
+    fontSize: 11,
+    color: COLORS.grayDark,
+    fontWeight: '500',
+  },
+  fontOptionCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.offWhite,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  fontOptionCardActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  fontOptionLabel: {
+    fontSize: 14,
+    color: COLORS.primary,
+  },
+  fontOptionLabelActive: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  colorOptionCard: {
+    width: 60,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  colorOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  colorOptionThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 6,
+  },
+  colorOptionLabel: {
+    fontSize: 10,
+    color: COLORS.grayDark,
+  },
+  confirmShareButton: {
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 25,
+    marginBottom: 10,
+  },
+  confirmShareText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 10,
   },
 });

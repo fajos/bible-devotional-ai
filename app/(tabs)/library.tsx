@@ -11,8 +11,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import * as store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
 
 interface Devotional {
   id: string;
@@ -29,6 +30,7 @@ interface Devotional {
 }
 
 export default function LibraryScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const [savedItems, setSavedItems] = useState<Devotional[]>([]);
   const router = useRouter();
   const navigation = useNavigation();
@@ -92,7 +94,7 @@ export default function LibraryScreen() {
 
   const renderItem: ListRenderItem<Devotional> = ({ item }) => (
     <TouchableOpacity
-      style={styles.itemCard}
+      style={[styles.itemCard, { backgroundColor: colors.surface }]}
       onPress={() => {
         store.storeDevotional(item);
         if (item.type === 'reading_plan') {
@@ -118,10 +120,10 @@ export default function LibraryScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.itemTopic}>{item.type === 'reading_plan' ? item.data?.title ?? '' : item.topic}</Text>
+      <Text style={[styles.itemTopic, { color: colors.text }]}>{item.type === 'reading_plan' ? item.data?.title ?? '' : item.topic}</Text>
 
       {(item.content || (item.type === 'reading_plan' && item.data?.description)) && (
-        <Text style={styles.itemPreview} numberOfLines={2}>
+        <Text style={[styles.itemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
           {item.type === 'reading_plan'
             ? getCleanPreview(item.data?.description)
             : getCleanPreview(item.content)}
@@ -129,11 +131,11 @@ export default function LibraryScreen() {
       )}
 
       <View style={styles.itemFooter}>
-        <Text style={styles.itemDate}>
+        <Text style={[styles.itemDate, { color: colors.textSecondary }]}>
           {new Date(item.savedAt ?? item.date ?? Date.now()).toLocaleDateString()}
         </Text>
         {item.bibleVersion && (
-          <View style={styles.versionBadge}>
+          <View style={[styles.versionBadge, { backgroundColor: colors.offWhite }]}>
             <Text style={styles.versionText}>{item.bibleVersion}</Text>
           </View>
         )}
@@ -143,10 +145,10 @@ export default function LibraryScreen() {
 
   if (savedItems.length === 0) {
     return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="bookmarks" size={80} color={COLORS.grayLight} />
-        <Text style={styles.emptyTitle}>Your Library is Empty</Text>
-        <Text style={styles.emptyText}>
+      <View style={[styles.emptyContainer, { backgroundColor: colors.background }]}>
+        <Ionicons name="bookmarks" size={80} color={colors.textSecondary} style={{ opacity: 0.5 }} />
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>Your Library is Empty</Text>
+        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
           Save devotionals and studies to build your personal Bible study library
         </Text>
         <TouchableOpacity 
@@ -160,12 +162,15 @@ export default function LibraryScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
+        key={isTablet ? 'tablet' : 'phone'}
         data={savedItems}
+        numColumns={isTablet ? 2 : 1}
         renderItem={renderItem}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
+        columnWrapperStyle={isTablet ? { gap: SPACING.md } : null}
         showsVerticalScrollIndicator={false}
       />
     </View>
@@ -181,6 +186,7 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
   },
   itemCard: {
+    flex: 1,
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: SPACING.md,

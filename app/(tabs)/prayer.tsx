@@ -13,9 +13,10 @@ import {
   View,
   Alert,
 } from 'react-native';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import store from '../../services/store';
 import notifications, { REMINDER_TYPES } from '../../services/notifications';
+import { useAppTheme } from '../../context/ThemeContext';
 
 interface Prayer {
   id: string;
@@ -25,6 +26,7 @@ interface Prayer {
 }
 
 export default function PrayerJournalScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const [prayers, setPrayers] = useState<Prayer[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [newPrayer, setNewPrayer] = useState('');
@@ -133,14 +135,14 @@ export default function PrayerJournalScreen() {
   };
 
   const renderItem = ({ item }: { item: Prayer }) => (
-    <View style={[styles.card, item.isAnswered && styles.answeredCard]}>
+    <View style={[styles.card, { backgroundColor: colors.surface }, item.isAnswered && [styles.answeredCard, { backgroundColor: isDarkMode ? colors.primaryDark : '#F1F8E9' }]]}>
       <View style={styles.cardHeader}>
-        <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
+        <Text style={[styles.date, { color: colors.textSecondary }]}>{new Date(item.date).toLocaleDateString()}</Text>
         <TouchableOpacity onPress={() => deletePrayer(item.id)}>
-          <Ionicons name="trash-outline" size={18} color={COLORS.gray} />
+          <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
-      <Text style={[styles.prayerText, item.isAnswered && styles.strikeText]}>
+      <Text style={[styles.prayerText, { color: colors.text }, item.isAnswered && styles.strikeText]}>
         {item.text}
       </Text>
       <TouchableOpacity
@@ -160,11 +162,11 @@ export default function PrayerJournalScreen() {
   );
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.offWhite }]}>
         <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>Prayer Journal</Text>
-          <Text style={styles.headerSubtitle}>Keep track of your conversations with God</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Prayer Journal</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>Keep track of your conversations with God</Text>
         </View>
         <View style={styles.reminderToggle}>
           {reminderEnabled && (
@@ -174,7 +176,7 @@ export default function PrayerJournalScreen() {
               </Text>
             </TouchableOpacity>
           )}
-          <Ionicons name="notifications-outline" size={20} color={reminderEnabled ? COLORS.gold : COLORS.gray} />
+          <Ionicons name="notifications-outline" size={20} color={reminderEnabled ? COLORS.gold : colors.textSecondary} />
           <Switch
             value={reminderEnabled}
             onValueChange={toggleReminder}
@@ -196,24 +198,27 @@ export default function PrayerJournalScreen() {
       )}
 
       <FlatList
+        key={isTablet ? 'tablet' : 'phone'}
         data={prayers}
+        numColumns={isTablet ? 2 : 1}
         renderItem={renderItem}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContainer}
+        columnWrapperStyle={isTablet ? { gap: SPACING.md } : null}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="hand-left-outline" size={60} color={COLORS.grayLight} />
-            <Text style={styles.emptyText}>Your prayer journal is empty.</Text>
-            <Text style={styles.emptySub}>&quot;Ask and it will be given to you...&quot;</Text>
+            <Ionicons name="hand-left-outline" size={60} color={colors.textSecondary} style={{ opacity: 0.5 }} />
+            <Text style={[styles.emptyText, { color: colors.text }]}>Your prayer journal is empty.</Text>
+            <Text style={[styles.emptySub, { color: colors.textSecondary }]}>&quot;Ask and it will be given to you...&quot;</Text>
           </View>
         }
       />
 
       <TouchableOpacity
-        style={styles.fab}
+        style={[styles.fab, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]}
         onPress={() => setModalVisible(true)}
       >
-        <Ionicons name="add" size={30} color={COLORS.white} />
+        <Ionicons name="add" size={30} color={isDarkMode ? colors.primary : COLORS.white} />
       </TouchableOpacity>
 
       <Modal
@@ -222,11 +227,12 @@ export default function PrayerJournalScreen() {
         transparent={true}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Prayer Request</Text>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>New Prayer Request</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: colors.offWhite, color: colors.text, borderColor: colors.offWhite }]}
               placeholder="What are you praying for?"
+              placeholderTextColor={colors.textSecondary}
               multiline
               value={newPrayer}
               onChangeText={setNewPrayer}
@@ -237,7 +243,7 @@ export default function PrayerJournalScreen() {
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.saveButton]}
@@ -305,6 +311,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   card: {
+    flex: 1,
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: 16,

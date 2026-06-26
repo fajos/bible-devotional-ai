@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 import {
     ActivityIndicator,
     Alert,
+    Dimensions,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -15,12 +16,18 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import { generateBibleStudy, generateReadingPlan } from '../../services/devotionalEngine';
 import openaiService from '../../services/openai';
 import * as store from '../../services/store';
+import { useAppTheme } from '../../context/ThemeContext';
+
+const { width } = Dimensions.get('window');
+const MAX_CONTENT_WIDTH = 600;
+const sideMargin = isTablet ? (width - MAX_CONTENT_WIDTH) / 2 : SPACING.md;
 
 export default function SearchScreen() {
+  const { colors, isDarkMode } = useAppTheme();
   const { q, mode } = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -85,7 +92,8 @@ export default function SearchScreen() {
       }
 
       if (searchMode === 'plan') {
-        const plan = await generateReadingPlan(trimmedQuery, planDuration, 'NKJV');
+        const preferredVersion = await store.getPreferredBibleVersion();
+        const plan = await generateReadingPlan(trimmedQuery, planDuration, preferredVersion);
         const planId = plan.id;
 
         // Use a slight delay before navigation for smoother transition feeling
@@ -104,7 +112,8 @@ export default function SearchScreen() {
       }
 
       // Step 2: Generate study content
-      const study = await generateBibleStudy(trimmedQuery, 'NKJV');
+      const preferredVersion = await store.getPreferredBibleVersion();
+      const study = await generateBibleStudy(trimmedQuery, preferredVersion);
 
       // Step 3: Save to storage and navigate
       await store.storeDevotional(study);
@@ -131,7 +140,7 @@ export default function SearchScreen() {
 
   return (
     <KeyboardAvoidingView 
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView 
@@ -153,37 +162,45 @@ export default function SearchScreen() {
         <View style={styles.searchInputContainer}>
           <View style={styles.modeSelectionContainer}>
             <TouchableOpacity
-              style={[styles.modeCard, searchMode === 'study' && styles.modeCardActive]}
+              style={[
+                styles.modeCard,
+                { backgroundColor: colors.surface },
+                searchMode === 'study' && [styles.modeCardActive, { backgroundColor: isDarkMode ? colors.primaryLight : COLORS.primary }]
+              ]}
               onPress={() => {
                 Haptics.selectionAsync();
                 setSearchMode('study');
               }}
             >
               <View style={[styles.modeIconCircle, searchMode === 'study' && styles.modeIconCircleActive]}>
-                <Ionicons name="book" size={24} color={searchMode === 'study' ? COLORS.white : COLORS.primary} />
+                <Ionicons name="book" size={24} color={searchMode === 'study' ? COLORS.white : COLORS.gold} />
               </View>
-              <Text style={[styles.modeCardTitle, searchMode === 'study' && styles.modeCardTitleActive]}>AI Study</Text>
-              <Text style={[styles.modeCardDesc, searchMode === 'study' && styles.modeCardDescActive]}>Theological deep-dive</Text>
+              <Text style={[styles.modeCardTitle, { color: colors.text }, searchMode === 'study' && styles.modeCardTitleActive]}>AI Study</Text>
+              <Text style={[styles.modeCardDesc, { color: colors.textSecondary }, searchMode === 'study' && styles.modeCardDescActive]}>Theological deep-dive</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.modeCard, searchMode === 'plan' && styles.modeCardActive]}
+              style={[
+                styles.modeCard,
+                { backgroundColor: colors.surface },
+                searchMode === 'plan' && [styles.modeCardActive, { backgroundColor: isDarkMode ? colors.primaryLight : COLORS.primary }]
+              ]}
               onPress={() => {
                 Haptics.selectionAsync();
                 setSearchMode('plan');
               }}
             >
               <View style={[styles.modeIconCircle, searchMode === 'plan' && styles.modeIconCircleActive]}>
-                <Ionicons name="calendar" size={24} color={searchMode === 'plan' ? COLORS.white : COLORS.primary} />
+                <Ionicons name="calendar" size={24} color={searchMode === 'plan' ? COLORS.white : COLORS.gold} />
               </View>
-              <Text style={[styles.modeCardTitle, searchMode === 'plan' && styles.modeCardTitleActive]}>Reading Plan</Text>
-              <Text style={[styles.modeCardDesc, searchMode === 'plan' && styles.modeCardDescActive]}>Custom roadmap</Text>
+              <Text style={[styles.modeCardTitle, { color: colors.text }, searchMode === 'plan' && styles.modeCardTitleActive]}>Reading Plan</Text>
+              <Text style={[styles.modeCardDesc, { color: colors.textSecondary }, searchMode === 'plan' && styles.modeCardDescActive]}>Custom roadmap</Text>
             </TouchableOpacity>
           </View>
 
           {searchMode === 'plan' && (
-            <View style={styles.durationSelector}>
-              <Text style={styles.durationLabel}>Plan Duration (Days):</Text>
+            <View style={[styles.durationSelector, { backgroundColor: colors.surface }]}>
+              <Text style={[styles.durationLabel, { color: colors.text }]}>Plan Duration (Days):</Text>
               <View style={styles.durationOptions}>
                 {[3, 5, 7, 14, 21, 30].map((d) => (
                   <TouchableOpacity
@@ -203,16 +220,16 @@ export default function SearchScreen() {
             </View>
           )}
 
-          <View style={styles.inputWrapper}>
-            <Ionicons name="search" size={20} color={COLORS.gray} style={styles.searchIcon} />
+          <View style={[styles.inputWrapper, { backgroundColor: colors.surface }]}>
+            <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, { color: colors.text }]}
               placeholder={
                 searchMode === 'plan'
                   ? "e.g. Sovereignty, The Covenants"
                   : "Topic (e.g. Romans 8 Exegesis)"
               }
-              placeholderTextColor={COLORS.gray}
+              placeholderTextColor={colors.textSecondary}
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={() => handleSearch(searchQuery)}
@@ -220,7 +237,7 @@ export default function SearchScreen() {
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color={COLORS.gray} />
+                <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
               </TouchableOpacity>
             )}
           </View>
@@ -247,16 +264,16 @@ export default function SearchScreen() {
         </View>
 
         <View style={styles.topicsSection}>
-          <Text style={styles.sectionTitle}>Popular Topics</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Popular Topics</Text>
           <View style={styles.topicsGrid}>
             {popularTopics.map((topic, index) => (
               <TouchableOpacity
                 key={index}
-                style={styles.topicCard}
+                style={[styles.topicCard, { backgroundColor: colors.surface }]}
                 onPress={() => handleTopicPress(topic)}
               >
                 <Text style={styles.topicIcon}>{topic.icon}</Text>
-                <Text style={styles.topicLabel}>{topic.label}</Text>
+                <Text style={[styles.topicLabel, { color: colors.text }]}>{topic.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -265,17 +282,17 @@ export default function SearchScreen() {
         <View style={styles.tipsSection}>
           <View style={styles.tipsHeader}>
             <Ionicons name="bulb" size={20} color={COLORS.gold} />
-            <Text style={styles.tipsTitle}>Search Tips</Text>
+            <Text style={[styles.tipsTitle, { color: colors.text }]}>Search Tips</Text>
           </View>
-          <View style={styles.tipCard}>
-            <Text style={styles.tipItem}>
-              <Text style={styles.tipHighlight}>Be specific:</Text> "Sermon on the Mount" vs just "Jesus"
+          <View style={[styles.tipCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              <Text style={[styles.tipHighlight, { color: colors.text }]}>Be specific:</Text> "Sermon on the Mount" vs just "Jesus"
             </Text>
-            <Text style={styles.tipItem}>
-              <Text style={styles.tipHighlight}>Ask questions:</Text> "How to overcome fear biblically?"
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              <Text style={[styles.tipHighlight, { color: colors.text }]}>Ask questions:</Text> "How to overcome fear biblically?"
             </Text>
-            <Text style={styles.tipItem}>
-              <Text style={styles.tipHighlight}>Name people:</Text> "Life lessons from Joseph"
+            <Text style={[styles.tipItem, { color: colors.textSecondary }]}>
+              <Text style={[styles.tipHighlight, { color: colors.text }]}>Name people:</Text> "Life lessons from Joseph"
             </Text>
           </View>
         </View>
@@ -314,8 +331,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   searchInputContainer: {
-    marginHorizontal: SPACING.md,
+    marginHorizontal: sideMargin,
     marginTop: -25,
+    maxWidth: MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    width: isTablet ? MAX_CONTENT_WIDTH : width - (SPACING.md * 2),
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -443,14 +463,18 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
   topicsSection: {
-    marginHorizontal: SPACING.md,
+    marginHorizontal: sideMargin,
     marginTop: SPACING.lg,
+    maxWidth: MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    width: isTablet ? MAX_CONTENT_WIDTH : width - (SPACING.md * 2),
   },
   sectionTitle: {
     fontSize: FONTS.ui.size.large,
     fontWeight: '700',
     color: COLORS.primary,
     marginBottom: SPACING.md,
+    textAlign: isTablet ? 'center' : 'left',
   },
   topicsGrid: {
     flexDirection: 'row',
@@ -458,7 +482,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   topicCard: {
-    width: '31%',
+    width: isTablet ? '24%' : '31%',
     backgroundColor: COLORS.white,
     borderRadius: 12,
     padding: SPACING.md,
@@ -477,8 +501,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   tipsSection: {
-    marginHorizontal: SPACING.md,
+    marginHorizontal: sideMargin,
     marginTop: SPACING.lg,
+    maxWidth: MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    width: isTablet ? MAX_CONTENT_WIDTH : width - (SPACING.md * 2),
   },
   tipsHeader: {
     flexDirection: 'row',

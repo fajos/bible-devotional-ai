@@ -7,10 +7,12 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
 import { REMINDER_TYPES, requestPermissions } from '../services/notifications';
+import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 
-export default function RootLayout() {
+function RootLayoutContent() {
   const router = useRouter();
   const notificationSubscription = useRef();
+  const { colors, isDarkMode } = useAppTheme();
 
   useEffect(() => {
     requestPermissions();
@@ -46,46 +48,54 @@ export default function RootLayout() {
   };
 
   return (
+    <View style={[styles.container, { backgroundColor: colors.primary }]}>
+      <StatusBar style="light" backgroundColor={colors.primary} />
+      <Stack
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: colors.primary,
+          },
+          headerTintColor: colors.gold,
+          headerTitleStyle: {
+            fontWeight: '600',
+            fontSize: 18,
+          },
+          headerBackTitleVisible: false,
+          contentStyle: {
+            backgroundColor: colors.background,
+          },
+          animation: 'slide_from_right',
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+        }}
+      >
+        <Stack.Screen
+          name="(tabs)"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="devotional/[id]"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="verse-compare/[reference]"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="bible-reader/[bibleId]"
+          options={{ headerShown: false }}
+        />
+      </Stack>
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  return (
     <SafeAreaProvider>
-      <View style={styles.container}>
-        <StatusBar style="light" backgroundColor={COLORS.primary} />
-        <Stack
-          screenOptions={{
-            headerStyle: {
-              backgroundColor: COLORS.primary,
-            },
-            headerTintColor: COLORS.gold,
-            headerTitleStyle: {
-              fontWeight: '600',
-              fontSize: 18,
-            },
-            headerBackTitleVisible: false,
-            contentStyle: {
-              backgroundColor: COLORS.offWhite,
-            },
-            animation: 'slide_from_right',
-            gestureEnabled: true,
-            gestureDirection: 'horizontal',
-          }}
-        >
-          <Stack.Screen
-            name="(tabs)"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="devotional/[id]"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="verse-compare/[reference]"
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen
-            name="bible-reader/[bibleId]"
-            options={{ headerShown: false }}
-          />
-        </Stack>
-      </View>
+      <ThemeProvider>
+        <RootLayoutContent />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
