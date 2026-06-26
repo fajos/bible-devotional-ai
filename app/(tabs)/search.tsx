@@ -146,7 +146,7 @@ export default function SearchScreen() {
           <Text style={styles.headerSubtitle}>
             {searchMode === 'plan'
               ? `Generate a ${planDuration}-day theological journey. Explore how the "Whole Counsel of God" speaks to your specific situation or season.`
-              : 'Deep-dive into the original context, Hebrew/Greek meanings, and the scarlet thread of redemption.'}
+              : 'Deep-dive into the original context, Hebrew/Greek meanings, and the unfolding story of God\'s redemption.'}
           </Text>
         </View>
 

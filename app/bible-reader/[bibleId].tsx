@@ -11,6 +11,7 @@ import {
   Dimensions,
   FlatList,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +23,7 @@ import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
 import { COLORS, FONTS, SHADOWS } from '../../constants/theme';
+import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import bibleApi from '../../services/bibleApi';
 import openaiService from '../../services/openai';
 import store from '../../services/store';
@@ -39,16 +41,6 @@ const HIGHLIGHT_COLORS = [
   { id: 'teal', color: '#B2DFDB', label: 'Teal' },
 ];
 
-const BACKGROUND_OPTIONS = [
-  { id: 'navy', color: '#1B1B3A', type: 'color', label: 'Navy' },
-  { id: 'parchment', color: '#F5E6CC', type: 'color', label: 'Parchment' },
-  { id: 'burgundy', color: '#4A0E0E', type: 'color', label: 'Burgundy' },
-  { id: 'stone', url: 'https://images.unsplash.com/photo-1517867065801-e20f409696b0?q=80&w=1080', type: 'image', label: 'Stone' },
-  { id: 'ancient', url: 'https://images.unsplash.com/photo-1524334228333-0f6db392f8a1?q=80&w=1080', type: 'image', label: 'Ancient' },
-  { id: 'mountain', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=1080', type: 'image', label: 'Mountain' },
-  { id: 'nebula', url: 'https://images.unsplash.com/photo-1464802686167-b939a6910659?q=80&w=1080', type: 'image', label: 'Nebula' },
-];
-
 interface BibleInfo {
   id: string;
   name: string;
@@ -58,6 +50,7 @@ interface BibleInfo {
 interface Book {
   id: string;
   name: string;
+  shortName?: string;
 }
 
 interface Chapter {
@@ -105,6 +98,8 @@ export default function BibleReaderScreen() {
   const viewShotRef = useRef<any>(null);
 
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
+  const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
+  const [selectedTextColor, setSelectedTextColor] = useState(TEXT_COLOR_OPTIONS[0]);
   const [shareModalVisible, setShareModalVisible] = useState(false);
 
   const [verseSearchModalVisible, setVerseSearchModalVisible] = useState(false);
@@ -116,6 +111,11 @@ export default function BibleReaderScreen() {
   const [verseSearchTotalResults, setVerseSearchTotalResults] = useState(0);
   const [isMoreLoading, setIsMoreLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [searchHighlightId, setSearchHighlightId] = useState<string | null>(null);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+
+  const scrollViewRef = useRef<ScrollView>(null);
+  const verseLayouts = useRef<Record<string, number>>({});
 
   const isLightBg = selectedBackground.id === 'parchment';
   const textColor = isLightBg ? COLORS.primary : COLORS.white;
@@ -123,7 +123,25 @@ export default function BibleReaderScreen() {
 
   useEffect(() => {
     loadInitialData();
+    loadSearchHistory();
   }, [bibleId, reference]);
+
+  const loadSearchHistory = async () => {
+    const history = await store.getCachedData('bible_search_history') || [];
+    setSearchHistory(history);
+  };
+
+  const saveSearchHistory = async (query: string) => {
+    const history = await store.getCachedData('bible_search_history') || [];
+    const newHistory = [query, ...history.filter((q: string) => q !== query)].slice(0, 10);
+    await store.setCachedData('bible_search_history', newHistory);
+    setSearchHistory(newHistory);
+  };
+
+  const clearSearchHistory = async () => {
+    await store.setCachedData('bible_search_history', []);
+    setSearchHistory([]);
+  };
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -131,16 +149,17 @@ export default function BibleReaderScreen() {
       const bibleData = await bibleApi.getBible(bibleId);
       setBible(bibleData);
 
-      const biblesList = await bibleApi.getBibles();
+      const biblesList = await bibleApi.getBibles() as BibleInfo[];
       setAllBibles(biblesList);
 
-      const booksData = await bibleApi.getBooks(bibleId);
+      const booksData = await bibleApi.getBooks(bibleId) as Book[];
       setBooks(booksData);
 
       if (booksData.length > 0) {
         // Try to load reference if provided
         let bookToSelect = null;
         let chapterToSelect = null;
+        let chaptersForBook: Chapter[] = [];
 
         if (reference) {
           // Robust parsing for "Book Chapter:Verse" or "Book Chapter-Chapter" or "1 Book Chapter"
@@ -157,7 +176,7 @@ export default function BibleReaderScreen() {
 
             // Priority matching
             // 1. Exact match (case insensitive)
-            bookToSelect = booksData.find(b =>
+            bookToSelect = booksData.find((b: Book) =>
               b.name.toLowerCase() === normalizedBookName ||
               b.id.toLowerCase() === normalizedBookName ||
               (b.shortName && b.shortName.toLowerCase() === normalizedBookName)
@@ -165,7 +184,7 @@ export default function BibleReaderScreen() {
 
             // 2. Singular/Plural match for Psalms/Psalm
             if (!bookToSelect) {
-              bookToSelect = booksData.find(b => {
+              bookToSelect = booksData.find((b: Book) => {
                 const bName = b.name.toLowerCase();
                 return bName === normalizedBookName + 's' ||
                        normalizedBookName === bName + 's';
@@ -174,16 +193,16 @@ export default function BibleReaderScreen() {
 
             // 3. Prefix match (e.g. "Gen" for "Genesis")
             if (!bookToSelect) {
-              bookToSelect = booksData.find(b =>
+              bookToSelect = booksData.find((b: Book) =>
                 b.name.toLowerCase().startsWith(normalizedBookName) ||
                 (b.shortName && b.shortName.toLowerCase().startsWith(normalizedBookName))
               );
             }
 
             if (bookToSelect) {
-              const chaptersData = await bibleApi.getChapters(bibleId, bookToSelect.id);
-              setChapters(chaptersData);
-              chapterToSelect = chaptersData.find(c => c.number === chapterNum);
+              chaptersForBook = await bibleApi.getChapters(bibleId, bookToSelect.id);
+              setChapters(chaptersForBook);
+              chapterToSelect = chaptersForBook.find(c => c.number === chapterNum);
             }
           }
         }
@@ -193,24 +212,24 @@ export default function BibleReaderScreen() {
           const lastRead = await store.getLastReadState();
 
           bookToSelect = currentBook
-            ? booksData.find(b => b.name === currentBook.name || b.id === currentBook.id)
+            ? booksData.find((b: Book) => b.name === currentBook.name || b.id === currentBook.id)
             : null;
 
           // If no book in memory, try to load from saved state
           if (!bookToSelect && lastRead) {
-            bookToSelect = booksData.find(b => b.id === lastRead.bookId);
+            bookToSelect = booksData.find((b: Book) => b.id === lastRead.bookId);
           }
 
           // Fallback to Genesis
           if (!bookToSelect) {
-             bookToSelect = booksData.find(b => b.name === 'Genesis' || b.id === 'GEN') || booksData[0];
+             bookToSelect = booksData.find((b: Book) => b.name === 'Genesis' || b.id === 'GEN') || booksData[0];
           }
 
-          const chaptersData = await bibleApi.getChapters(bibleId, bookToSelect.id);
-          setChapters(chaptersData);
+          chaptersForBook = await bibleApi.getChapters(bibleId, bookToSelect.id);
+          setChapters(chaptersForBook);
 
           if (lastRead && lastRead.bookId === bookToSelect.id) {
-            chapterToSelect = chaptersData.find(c => c.id === lastRead.chapterId);
+            chapterToSelect = chaptersForBook.find(c => c.id === lastRead.chapterId);
           }
         }
 
@@ -222,15 +241,15 @@ export default function BibleReaderScreen() {
 
         setCurrentBook(bookToSelect);
 
-        if (!chapterToSelect && chapters.length > 0) {
-          chapterToSelect = chapters[0];
+        if (!chapterToSelect && chaptersForBook.length > 0) {
+          chapterToSelect = chaptersForBook[0];
         }
 
         if (chapterToSelect) {
           await selectChapter(chapterToSelect, bibleId, bookToSelect.id);
         } else {
           // Fallback if chapter not found in the book
-          const chaps = await bibleApi.getChapters(bibleId, bookToSelect.id);
+          const chaps = chaptersForBook.length > 0 ? chaptersForBook : await bibleApi.getChapters(bibleId, bookToSelect.id);
           setChapters(chaps);
           await selectChapter(chaps[0], bibleId, bookToSelect.id);
         }
@@ -345,7 +364,7 @@ export default function BibleReaderScreen() {
     if (currentChapterIndex < chapters.length - 1) {
       await selectChapter(chapters[currentChapterIndex + 1]);
     } else {
-      const currentBookIndex = books.findIndex(b => b.id === currentBook.id);
+      const currentBookIndex = books.findIndex((b: Book) => b.id === currentBook.id);
       if (currentBookIndex < books.length - 1) {
         await selectBook(books[currentBookIndex + 1], 0);
       }
@@ -358,7 +377,7 @@ export default function BibleReaderScreen() {
     if (currentChapterIndex > 0) {
       await selectChapter(chapters[currentChapterIndex - 1]);
     } else {
-      const currentBookIndex = books.findIndex(b => b.id === currentBook.id);
+      const currentBookIndex = books.findIndex((b: Book) => b.id === currentBook.id);
       if (currentBookIndex > 0) {
         await selectBook(books[currentBookIndex - 1], -1);
       }
@@ -521,6 +540,10 @@ export default function BibleReaderScreen() {
     setVerseSearchPage(1);
     setHasSearched(true);
     setVerseSearchResults([]); // Clear previous results immediately
+
+    // Save to history
+    saveSearchHistory(verseSearchQuery.trim());
+
     try {
       const data = await bibleApi.search(bibleId, verseSearchQuery, 1);
       setVerseSearchResults(data.results || []);
@@ -552,25 +575,53 @@ export default function BibleReaderScreen() {
 
   const navigateToSearchResult = async (result: any) => {
     setVerseSearchModalVisible(false);
-    setVerseSearchQuery('');
-    setVerseSearchResults([]);
+    // Don't clear query/results here to keep them when opening search again
+    // setVerseSearchQuery('');
+    // setVerseSearchResults([]);
 
-    // Check if it's the same book and chapter
+    // Format reference for URL
+    const ref = `${result.bookName} ${result.chapter}:${result.verse}`;
+
+    // Clear previous highlight first to ensure the new one triggers a change
+    setSearchHighlightId(null);
+
+    // Use router.setParams to trigger loadInitialData with the new reference
+    router.setParams({ reference: ref });
+
+    const activeBibleId = await bibleApi.resolveBibleId(bibleId);
+    const targetVerseId = `${activeBibleId}.${result.bookId}.${result.chapter}.${result.verse}`;
+
+    // Check if it's the same book and chapter to scroll immediately
     if (currentBook?.id === String(result.bookId) && currentChapter?.number === String(result.chapter)) {
-      // Just scroll to verse? For now just re-select chapter to be sure
-      await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
+      setTimeout(() => {
+        setSearchHighlightId(targetVerseId);
+        scrollToVerse(targetVerseId);
+      }, 100);
     } else {
       // Find the book and navigate
-      const book = books.find(b => b.id === String(result.bookId) || b.name === result.bookName);
-      if (book) {
-        await selectBook(book);
-        await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
-      } else {
-          // Fallback if book not in current list (maybe different testament)
-          const bookData = { id: String(result.bookId), name: result.bookName };
-          await selectBook(bookData);
-          await selectChapter({ id: String(result.chapter), number: String(result.chapter) });
-      }
+      const book = books.find((b: Book) => b.id === String(result.bookId) || b.name === result.bookName);
+      const bookToUse = book || { id: String(result.bookId), name: result.bookName };
+
+      // Use the target chapter index (result.chapter is 1-based, index is 0-based)
+      await selectBook(bookToUse, parseInt(result.chapter) - 1);
+
+      // Set highlight after chapter loads
+      setTimeout(() => {
+        setSearchHighlightId(targetVerseId);
+        scrollToVerse(targetVerseId);
+      }, 600);
+    }
+
+    // De-highlight after a few seconds
+    setTimeout(() => {
+      setSearchHighlightId(null);
+    }, 4000);
+  };
+
+  const scrollToVerse = (verseId: string) => {
+    const y = verseLayouts.current[verseId];
+    if (y !== undefined && scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ y: Math.max(0, y - 100), animated: true });
     }
   };
 
@@ -644,7 +695,10 @@ export default function BibleReaderScreen() {
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={styles.readerContent}>
+          <ScrollView
+            ref={scrollViewRef}
+            contentContainerStyle={styles.readerContent}
+          >
             <Text style={styles.chapterHeader}>
               {currentBook?.name} {currentChapter?.number}
             </Text>
@@ -653,6 +707,7 @@ export default function BibleReaderScreen() {
               {verses.map((verse) => {
                 const highlight = highlights[verse.id];
                 const isSelected = selectedVerses.includes(verse.id);
+                const isSearchHighlight = verse.id === searchHighlightId;
 
                 return (
                   <TouchableOpacity
@@ -660,10 +715,14 @@ export default function BibleReaderScreen() {
                     activeOpacity={0.7}
                     onPress={() => handleVersePress(verse)}
                     style={styles.verseWrapper}
+                    onLayout={(event) => {
+                      verseLayouts.current[verse.id] = event.nativeEvent.layout.y;
+                    }}
                   >
                     <View style={[
                       styles.verseTextContainer,
-                      highlight && { backgroundColor: highlight.color }
+                      highlight && { backgroundColor: highlight.color },
+                      isSearchHighlight && { backgroundColor: 'rgba(212, 175, 55, 0.4)' }
                     ]}>
                       <Text style={styles.verseNumber}>{verse.number}</Text>
                       <Text style={[
@@ -702,16 +761,23 @@ export default function BibleReaderScreen() {
                   <Ionicons name="chatbox-ellipses" size={60} color={isLightBg ? 'rgba(0,0,0,0.1)' : 'rgba(212, 175, 55, 0.3)'} style={styles.quoteIcon} />
 
                   <View style={styles.shareCardBody}>
-                    <Text style={[styles.shareCardText, { color: textColor }]}>
+                    <Text style={[
+                      styles.shareCardText,
+                      {
+                        color: selectedTextColor.color,
+                        fontFamily: selectedFont.family,
+                        fontStyle: (selectedFont as any).style || 'normal'
+                      }
+                    ]}>
                       {verses.filter(v => selectedVerses.includes(v.id)).map(v => v.text).join(' ')}
                     </Text>
 
-                    <View style={[styles.shareCardDivider, { backgroundColor: goldColor }]} />
+                    <View style={[styles.shareCardDivider, { backgroundColor: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]} />
 
-                    <Text style={[styles.shareCardReference, { color: goldColor }]}>
+                    <Text style={[styles.shareCardReference, { color: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]}>
                       {currentBook?.name} {currentChapter?.number}:{verses.filter(v => selectedVerses.includes(v.id))[0]?.number}{selectedVerses.length > 1 ? '-' + verses.filter(v => selectedVerses.includes(v.id))[selectedVerses.length - 1]?.number : ''}
                     </Text>
-                    <Text style={[styles.shareCardVersion, { color: isLightBg ? 'rgba(0,0,0,0.5)' : 'rgba(255, 255, 255, 0.5)' }]}>
+                    <Text style={[styles.shareCardVersion, { color: selectedTextColor.color, opacity: 0.6 }]}>
                       {bible?.abbreviation || 'NKJV'}
                     </Text>
                   </View>
@@ -778,7 +844,7 @@ export default function BibleReaderScreen() {
                 <TouchableOpacity
                   style={styles.navButton}
                   onPress={goToPreviousChapter}
-                  disabled={books.findIndex(b => b.id === currentBook?.id) === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
+                  disabled={books.findIndex((b: Book) => b.id === currentBook?.id) === 0 && chapters.findIndex(c => c.id === currentChapter?.id) === 0}
                 >
                   <Ionicons name="chevron-back" size={24} color={COLORS.gold} />
                   <Text style={styles.navButtonText}>Prev</Text>
@@ -790,7 +856,7 @@ export default function BibleReaderScreen() {
                   style={styles.navButton}
                   onPress={goToNextChapter}
                   disabled={
-                    books.findIndex(b => b.id === currentBook?.id) === books.length - 1 &&
+                    books.findIndex((b: Book) => b.id === currentBook?.id) === books.length - 1 &&
                     chapters.findIndex(c => c.id === currentChapter?.id) === chapters.length - 1
                   }
                 >
@@ -909,10 +975,20 @@ export default function BibleReaderScreen() {
                     styles.sharePreviewCardBorder,
                     { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
                   ]}>
-                    <Text style={[styles.sharePreviewText, { color: textColor }]} numberOfLines={6}>
+                    <Text
+                      style={[
+                        styles.sharePreviewText,
+                        {
+                          color: selectedTextColor.color,
+                          fontFamily: selectedFont.family,
+                          fontStyle: (selectedFont as any).style || 'normal'
+                        }
+                      ]}
+                      numberOfLines={6}
+                    >
                       {verses.filter(v => selectedVerses.includes(v.id)).map(v => v.text).join(' ')}
                     </Text>
-                    <Text style={[styles.sharePreviewRef, { color: goldColor }]}>
+                    <Text style={[styles.sharePreviewRef, { color: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]}>
                       {currentBook?.name} {currentChapter?.number}:{verses.filter(v => selectedVerses.includes(v.id))[0]?.number}
                     </Text>
                   </View>
@@ -947,6 +1023,59 @@ export default function BibleReaderScreen() {
                 ))}
               </ScrollView>
 
+              <Text style={styles.sectionLabel}>Select Font</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <TouchableOpacity
+                    key={font.id}
+                    style={[
+                      styles.fontOptionCard,
+                      selectedFont.id === font.id && styles.fontOptionCardActive
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedFont(font);
+                    }}
+                  >
+                    <Text style={[
+                      styles.fontOptionLabel,
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      selectedFont.id === font.id && styles.fontOptionLabelActive
+                    ]}>
+                      {font.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {TEXT_COLOR_OPTIONS.map((color) => (
+                  <TouchableOpacity
+                    key={color.id}
+                    style={[
+                      styles.colorOptionCard,
+                      selectedTextColor.id === color.id && styles.colorOptionCardActive
+                    ]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setSelectedTextColor(color);
+                    }}
+                  >
+                    <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
+                    <Text style={styles.colorOptionLabel}>{color.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
               <TouchableOpacity
                 style={styles.confirmShareButton}
                 onPress={captureAndShareImage}
@@ -971,11 +1100,15 @@ export default function BibleReaderScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Search in {bible?.abbreviation || 'Bible'}</Text>
-                {verseSearchTotalResults > 0 && (
-                  <Text style={styles.searchCountText}>{verseSearchTotalResults} verses found</Text>
-                )}
               </View>
-              <TouchableOpacity onPress={() => setVerseSearchModalVisible(false)}>
+              <TouchableOpacity onPress={() => {
+                setVerseSearchModalVisible(false);
+                if (verseSearchQuery === '') {
+                  setHasSearched(false);
+                  setVerseSearchResults([]);
+                  setVerseSearchTotalResults(0);
+                }
+              }}>
                 <Ionicons name="close" size={24} color={COLORS.primary} />
               </TouchableOpacity>
             </View>
@@ -985,7 +1118,14 @@ export default function BibleReaderScreen() {
                 style={styles.verseSearchInput}
                 placeholder="Search keywords (e.g. 'grace', 'covenant')"
                 value={verseSearchQuery}
-                onChangeText={setVerseSearchQuery}
+                onChangeText={(text) => {
+                  setVerseSearchQuery(text);
+                  if (text === '') {
+                    setHasSearched(false);
+                    setVerseSearchResults([]);
+                    setVerseSearchTotalResults(0);
+                  }
+                }}
                 onSubmitEditing={handleVerseSearch}
                 autoFocus
               />
@@ -993,6 +1133,46 @@ export default function BibleReaderScreen() {
                 <Ionicons name="search" size={20} color={COLORS.white} />
               </TouchableOpacity>
             </View>
+
+            {verseSearchTotalResults > 0 && hasSearched && (
+              <Text style={styles.searchCountText}>{verseSearchTotalResults} verses found</Text>
+            )}
+
+            {!hasSearched && searchHistory.length > 0 && (
+              <View style={styles.historyContainer}>
+                <View style={styles.historyHeader}>
+                  <Text style={styles.historyTitle}>Recent Searches</Text>
+                  <TouchableOpacity onPress={clearSearchHistory}>
+                    <Text style={styles.clearHistoryText}>Clear</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.historyChips}>
+                  {searchHistory.map((item, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.historyChip}
+                      onPress={() => {
+                        setVerseSearchQuery(item);
+                        // Trigger search manually since we can't call handleVerseSearch directly with a param easily without refactoring
+                        setVerseSearchLoading(true);
+                        setVerseSearchPage(1);
+                        setHasSearched(true);
+                        bibleApi.search(bibleId, item, 1).then((data: any) => {
+                          setVerseSearchResults(data.results || []);
+                          setVerseSearchTotalPages(data.totalPages || 1);
+                          setVerseSearchTotalResults(data.totalResults || 0);
+                          setVerseSearchLoading(false);
+                          saveSearchHistory(item);
+                        });
+                      }}
+                    >
+                      <Ionicons name="time-outline" size={14} color={COLORS.gray} />
+                      <Text style={styles.historyChipText}>{item}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {verseSearchLoading ? (
               <ActivityIndicator size="large" color={COLORS.gold} style={{ marginTop: 20 }} />
@@ -1086,7 +1266,7 @@ export default function BibleReaderScreen() {
                   </TouchableOpacity>
                 ))
               ) : (
-                allBibles.map((b) => (
+                allBibles.map((b: BibleInfo) => (
                   <TouchableOpacity
                     key={b.id}
                     style={[
@@ -1606,6 +1786,50 @@ const styles = StyleSheet.create({
     color: COLORS.grayDark,
     fontWeight: '500',
   },
+  fontOptionCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.offWhite,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  fontOptionCardActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  fontOptionLabel: {
+    fontSize: 14,
+    color: COLORS.primary,
+  },
+  fontOptionLabelActive: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  colorOptionCard: {
+    width: 60,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  colorOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  colorOptionThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 6,
+  },
+  colorOptionLabel: {
+    fontSize: 10,
+    color: COLORS.grayDark,
+  },
   confirmShareButton: {
     backgroundColor: COLORS.primary,
     flexDirection: 'row',
@@ -1671,6 +1895,45 @@ const styles = StyleSheet.create({
     marginTop: 20,
     color: COLORS.gray,
     fontStyle: 'italic',
+  },
+  historyContainer: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  historyTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  clearHistoryText: {
+    fontSize: 12,
+    color: COLORS.gray,
+  },
+  historyChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  historyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.offWhite,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  historyChipText: {
+    fontSize: 13,
+    color: COLORS.primary,
+    marginLeft: 4,
   },
 });
 

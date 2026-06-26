@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -41,7 +40,31 @@ const DAILY_VERSES: DailyVerse[] = [
   { text: "And we know that all things work together for good to those who love God, to those who are the called according to His purpose.", ref: "Romans 8:28", version: "NKJV" },
   { text: "Trust in the LORD with all your heart, And lean not on your own understanding; In all your ways acknowledge Him, And He shall direct your paths.", ref: "Proverbs 3:5-6", version: "NKJV" },
   { text: "But those who wait on the LORD Shall renew their strength; They shall mount up with wings like eagles, They shall run and not be weary, They shall walk and not faint.", ref: "Isaiah 40:31", version: "NKJV" },
-  { text: "Be strong and of good courage, do not fear nor be afraid of them; for the LORD your God, He is the One who goes with you. He will not leave you nor forsake you.", ref: "Deuteronomy 31:6", version: "NKJV" }
+  { text: "Be strong and of good courage, do not fear nor be afraid of them; for the LORD your God, He is the One who goes with you. He will not leave you nor forsake you.", ref: "Deuteronomy 31:6", version: "NKJV" },
+  { text: "The grass withers, the flower fades, But the word of our God stands forever.", ref: "Isaiah 40:8", version: "NKJV" },
+  { text: "But seek first the kingdom of God and His righteousness, and all these things shall be added to you.", ref: "Matthew 6:33", version: "NKJV" },
+  { text: "He has shown you, O man, what is good; And what does the LORD require of you But to do justly, To love mercy, And to walk humbly with your God?", ref: "Micah 6:8", version: "NKJV" },
+  { text: "Therefore, if anyone is in Christ, he is a new creation; old things have passed away; behold, all things have become new.", ref: "2 Corinthians 5:17", version: "NKJV" },
+  { text: "Let your light so shine before men, that they may see your good works and glorify your Father in heaven.", ref: "Matthew 5:16", version: "NKJV" },
+  { text: "The name of the LORD is a strong tower; The righteous run to it and are safe.", ref: "Proverbs 18:10", version: "NKJV" },
+  { text: "Jesus Christ is the same yesterday, today, and forever.", ref: "Hebrews 13:8", version: "NKJV" },
+  { text: "God is our refuge and strength, A very present help in trouble.", ref: "Psalm 46:1", version: "NKJV" },
+  { text: "The Lord is not slack concerning His promise, as some count slackness, but is longsuffering toward us, not willing that any should perish but that all should come to repentance.", ref: "2 Peter 3:9", version: "NKJV" },
+  { text: "I have been crucified with Christ; it is no longer I who live, but Christ lives in me; and the life which I now live in the flesh I live by faith in the Son of God, who loved me and gave Himself for me.", ref: "Galatians 2:20", version: "NKJV" },
+  { text: "For God has not given us a spirit of fear, but of power and of love and of a sound mind.", ref: "2 Timothy 1:7", version: "NKJV" },
+  { text: "Your word is a lamp to my feet And a light to my path.", ref: "Psalm 119:105", version: "NKJV" },
+  { text: "Rejoice in the Lord always. Again I will say, rejoice!", ref: "Philippians 4:4", version: "NKJV" },
+  { text: "Wait on the LORD; Be of good courage, And He shall strengthen your heart; Wait, I say, on the LORD!", ref: "Psalm 27:14", version: "NKJV" },
+  { text: "In the beginning was the Word, and the Word was with God, and the Word was God.", ref: "John 1:1", version: "NKJV" },
+  { text: "And the Word became flesh and dwelt among us, and we beheld His glory, the glory as of the only begotten of the Father, full of grace and truth.", ref: "John 1:14", version: "NKJV" },
+  { text: "For by grace you have been saved through faith, and that not of yourselves; it is the gift of God, not of works, lest anyone should boast.", ref: "Ephesians 2:8-9", version: "NKJV" },
+  { text: "Bless the LORD, O my soul; And all that is within me, bless His holy name!", ref: "Psalm 103:1", version: "NKJV" },
+  { text: "Set your mind on things above, not on things on the earth.", ref: "Colossians 3:2", version: "NKJV" },
+  { text: "Great is Your faithfulness.", ref: "Lamentations 3:23", version: "NKJV" },
+  { text: "The LORD your God in your midst, The Mighty One, will save; He will rejoice over you with gladness, He will quiet you with His love, He will triumph over you with singing.", ref: "Zephaniah 3:17", version: "NKJV" },
+  { text: "So then faith comes by hearing, and hearing by the word of God.", ref: "Romans 10:17", version: "NKJV" },
+  { text: "And do not be conformed to this world, but be transformed by the renewing of your mind, that you may prove what is that good and acceptable and perfect will of God.", ref: "Romans 12:2", version: "NKJV" },
+  { text: "Be kind to one another, tenderhearted, forgiving one another, even as God in Christ forgave you.", ref: "Ephesians 4:32", version: "NKJV" }
 ];
 
 type Mood = {
@@ -70,7 +93,6 @@ interface Devotional {
 export default function DailyDevotionalScreen(): JSX.Element {
   const [devotional, setDevotional] = useState<Devotional | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('Opening the Word...');
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [votd, setVotd] = useState<DailyVerse>(DAILY_VERSES[0]);
@@ -189,13 +211,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
       alert('Unable to generate devotional. Please check your internet connection and try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  };
-
-  const onRefresh = (): void => {
-    setRefreshing(true);
-    loadDevotional();
   };
 
   const handleShareVerse = async (verse: string, ref: string, version: string): Promise<void> => {
@@ -228,14 +244,6 @@ export default function DailyDevotionalScreen(): JSX.Element {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={COLORS.gold}
-          colors={[COLORS.gold]}
-        />
-      }
     >
       {/* Date Header */}
       <View style={styles.dateHeader}>

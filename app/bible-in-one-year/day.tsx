@@ -18,7 +18,7 @@ import ViewShot from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import { BIBLE_IN_ONE_YEAR } from '../../constants/bibleInOneYear';
-import { BACKGROUND_OPTIONS } from '../../constants/sharing';
+import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import openaiService from '../../services/openai';
 import * as store from '../../services/store';
 
@@ -37,6 +37,8 @@ export default function BibleInOneYearDayScreen() {
 
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
+  const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
+  const [selectedTextColor, setSelectedTextColor] = useState(TEXT_COLOR_OPTIONS[0]);
   const viewShotRef = useRef<any>(null);
 
   const isLightBg = selectedBackground.id === 'parchment';
@@ -232,12 +234,22 @@ export default function BibleInOneYearDayScreen() {
                     <Text style={[styles.sharePreviewTitle, { color: goldColor }]}>
                       DAY {dayNum}: {dayData.title}
                     </Text>
-                    <Text style={[styles.sharePreviewText, { color: textColor }]} numberOfLines={12}>
+                    <Text
+                      style={[
+                        styles.sharePreviewText,
+                        {
+                          color: selectedTextColor.color,
+                          fontFamily: selectedFont.family,
+                          fontStyle: (selectedFont as any).style || 'normal'
+                        }
+                      ]}
+                      numberOfLines={12}
+                    >
                       {aiInsight ? getCleanText(aiInsight) : ''}
                     </Text>
                     <View style={[styles.shareCardFooter, { marginTop: 20 }]}>
-                        <Ionicons name="sparkles" size={16} color={goldColor} />
-                        <Text style={[styles.shareCardAppName, { color: isLightBg ? 'rgba(0,0,0,0.3)' : 'rgba(212, 175, 55, 0.7)' }]}>BIBLE DEVOTIONAL AI</Text>
+                        <Ionicons name="sparkles" size={16} color={selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color} />
+                        <Text style={[styles.shareCardAppName, { color: selectedTextColor.color, opacity: 0.6 }]}>BIBLE DEVOTIONAL AI</Text>
                     </View>
                   </View>
                 </ViewShot>
@@ -264,6 +276,53 @@ export default function BibleInOneYearDayScreen() {
                       <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
                     )}
                     <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.sectionLabel}>Select Font</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <TouchableOpacity
+                    key={font.id}
+                    style={[
+                      styles.fontOptionCard,
+                      selectedFont.id === font.id && styles.fontOptionCardActive
+                    ]}
+                    onPress={() => setSelectedFont(font)}
+                  >
+                    <Text style={[
+                      styles.fontOptionLabel,
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      selectedFont.id === font.id && styles.fontOptionLabelActive
+                    ]}>
+                      {font.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bgOptionsScroll}
+              >
+                {TEXT_COLOR_OPTIONS.map((color) => (
+                  <TouchableOpacity
+                    key={color.id}
+                    style={[
+                      styles.colorOptionCard,
+                      selectedTextColor.id === color.id && styles.colorOptionCardActive
+                    ]}
+                    onPress={() => setSelectedTextColor(color)}
+                  >
+                    <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
+                    <Text style={styles.colorOptionLabel}>{color.label}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -509,6 +568,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.grayDark,
     fontWeight: '500',
+  },
+  fontOptionCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.offWhite,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  fontOptionCardActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  fontOptionLabel: {
+    fontSize: 14,
+    color: COLORS.primary,
+  },
+  fontOptionLabelActive: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  colorOptionCard: {
+    width: 60,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  colorOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  colorOptionThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 6,
+  },
+  colorOptionLabel: {
+    fontSize: 10,
+    color: COLORS.grayDark,
   },
   confirmShareButton: {
     backgroundColor: COLORS.primary,

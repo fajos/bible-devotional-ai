@@ -19,7 +19,7 @@ import {
 import Markdown from 'react-native-markdown-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot from 'react-native-view-shot';
-import { BACKGROUND_OPTIONS } from '../../constants/sharing';
+import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import { COLORS, FONTS, SHADOWS, SPACING } from '../../constants/theme';
 import * as store from '../../services/store';
 import bibleApi from '../../services/bibleApi';
@@ -133,6 +133,8 @@ export default function DevotionalDetailScreen(): JSX.Element {
     const viewShotRef = useRef<React.ElementRef<typeof ViewShot> | null>(null);
 
     const [selectedBackground, setSelectedBackground] = useState<BackgroundOption>(BACKGROUND_OPTIONS[0]);
+    const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
+    const [selectedTextColor, setSelectedTextColor] = useState(TEXT_COLOR_OPTIONS[0]);
     const [shareModalVisible, setShareModalVisible] = useState<boolean>(false);
 
     const [isSavingImage, setIsSavingImage] = useState<boolean>(false);
@@ -477,16 +479,23 @@ return (
           <Ionicons name="chatbox-ellipses" size={60} color={isLightBg ? 'rgba(0,0,0,0.1)' : 'rgba(212, 175, 55, 0.3)'} style={styles.quoteIcon} />
 
           <View style={styles.shareCardBody}>
-            <Text style={[styles.shareCardText, { color: textColor }]}>
+            <Text style={[
+              styles.shareCardText,
+              {
+                color: selectedTextColor.color,
+                fontFamily: selectedFont.family,
+                fontStyle: (selectedFont as any).style || 'normal'
+              }
+            ]}>
               {devotional.keyVerse?.text}
             </Text>
 
-            <View style={[styles.shareCardDivider, { backgroundColor: goldColor }]} />
+            <View style={[styles.shareCardDivider, { backgroundColor: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]} />
 
-            <Text style={[styles.shareCardReference, { color: goldColor }]}>
+            <Text style={[styles.shareCardReference, { color: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]}>
               {devotional.keyVerse?.reference}
             </Text>
-            <Text style={[styles.shareCardVersion, { color: isLightBg ? 'rgba(0,0,0,0.5)' : 'rgba(255, 255, 255, 0.5)' }]}>
+            <Text style={[styles.shareCardVersion, { color: selectedTextColor.color, opacity: 0.6 }]}>
               {devotional.bibleVersion || 'NKJV'}
             </Text>
           </View>
@@ -732,10 +741,20 @@ return (
                   styles.sharePreviewCardBorder,
                   { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
                 ]}>
-                  <Text style={[styles.sharePreviewText, { color: textColor }]} numberOfLines={6}>
+                  <Text
+                    style={[
+                      styles.sharePreviewText,
+                      {
+                        color: selectedTextColor.color,
+                        fontFamily: selectedFont.family,
+                        fontStyle: (selectedFont as any).style || 'normal'
+                      }
+                    ]}
+                    numberOfLines={6}
+                  >
                     {devotional.keyVerse?.text}
                   </Text>
-                  <Text style={[styles.sharePreviewRef, { color: goldColor }]}>
+                  <Text style={[styles.sharePreviewRef, { color: selectedTextColor.color === '#FFFFFF' ? goldColor : selectedTextColor.color }]}>
                     {devotional.keyVerse?.reference}
                   </Text>
                 </View>
@@ -766,6 +785,59 @@ return (
                     <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
                   )}
                   <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.sectionLabel}>Select Font</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.bgOptionsScroll}
+            >
+              {FONT_OPTIONS.map((font) => (
+                <TouchableOpacity
+                  key={font.id}
+                  style={[
+                    styles.fontOptionCard,
+                    selectedFont.id === font.id && styles.fontOptionCardActive
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSelectedFont(font);
+                  }}
+                >
+                  <Text style={[
+                    styles.fontOptionLabel,
+                    { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                    selectedFont.id === font.id && styles.fontOptionLabelActive
+                  ]}>
+                    {font.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.sectionLabel}>Select Text Color</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.bgOptionsScroll}
+            >
+              {TEXT_COLOR_OPTIONS.map((color) => (
+                <TouchableOpacity
+                  key={color.id}
+                  style={[
+                    styles.colorOptionCard,
+                    selectedTextColor.id === color.id && styles.colorOptionCardActive
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSelectedTextColor(color);
+                  }}
+                >
+                  <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
+                  <Text style={styles.colorOptionLabel}>{color.label}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -1367,6 +1439,50 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.grayDark,
     fontWeight: '500',
+  },
+  fontOptionCard: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.offWhite,
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  fontOptionCardActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  fontOptionLabel: {
+    fontSize: 14,
+    color: COLORS.primary,
+  },
+  fontOptionLabelActive: {
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  colorOptionCard: {
+    width: 60,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  colorOptionCardActive: {
+    transform: [{ scale: 1.05 }],
+  },
+  colorOptionThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 6,
+  },
+  colorOptionLabel: {
+    fontSize: 10,
+    color: COLORS.grayDark,
   },
   confirmShareButton: {
     backgroundColor: COLORS.primary,

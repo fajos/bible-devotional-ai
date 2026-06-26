@@ -67,7 +67,32 @@ class OpenAIService {
       day: 'numeric'
     });
 
+    const themes = [
+      "The Sovereignty of God", "The New Covenant", "Justification by Faith",
+      "The Fruit of the Spirit", "The Armor of God", "The Priesthood of Christ",
+      "Sanctification and Holiness", "The Wisdom of God in Proverbs", "God's Providence in Joseph's life",
+      "The Servant Songs of Isaiah", "The Kingdom of God in Parables", "Apostolic Zeal in Acts",
+      "The Love of God (1 John)", "Spiritual Warfare (Ephesians 6)", "The Preeminence of Christ (Colossians)",
+      "The Tabernacle as a Type of Christ", "The Sufficiency of Scripture", "The Fear of the Lord",
+      "Perseverance of the Saints", "The Incarnation", "The Resurrection Power",
+      "Gifts of the Spirit", "The Covenants (Abrahamic, Davidic, New)", "Christ in the Psalms",
+      "The Sermon on the Mount", "The Attributes of God (Omniscience, Omnipresence)",
+      "Biblical Stewardship", "The Great Commission", "Worship in Spirit and Truth",
+      "The Imago Dei (Image of God)", "Grace vs. Legalism (Galatians)"
+    ];
+
+    // Pick a theme based on the day of the year to ensure variety across a month
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    const diff = now.getTime() - start.getTime();
+    const oneDay = 1000 * 60 * 60 * 24;
+    const day = Math.floor(diff / oneDay);
+    const themeSeed = themes[day % themes.length];
+
     const prompt = `Create a deep, scholarly daily devotional for ${today} using the ${bibleVersion} Bible version.
+
+    FOCUS THEME: ${themeSeed}
+    (Ensure the devotional explores this theme deeply using relevant scriptures, but do not use "Focus Theme" as a header in your response).
 
     Please structure your response EXACTLY as follows (use these exact headers):
 
@@ -80,7 +105,7 @@ class OpenAIService {
     - Explains the original linguistic (Hebrew/Greek) or cultural context.
     - Include specific Hebrew or Greek root words for key theological terms found in the passage, providing their transliteration and original meaning.
     - Connects the theme to the overarching biblical narrative.
-    - Discusses the "Scarlet Thread" - how this points to or is fulfilled in Jesus Christ.
+    - Explains how this points to or is fulfilled in Jesus Christ and God's consistent plan for salvation.
     - Provides a bridge between Old Testament shadows and New Testament reality.
 
     IMPORTANT: Start immediately with your analysis. DO NOT repeat the key verse text or the reference at the beginning of this section.]
@@ -172,7 +197,7 @@ class OpenAIService {
     1. Literary & Historical Context: Where does this passage fit in the book's argument and what was the author's intent?
     2. Exegetical Deep-Dive: A detailed verse-by-verse or section-by-section analysis.
     3. Linguistic Analysis: Identify specific Greek or Hebrew terms (transliterated) that are critical to the passage, explaining their nuances.
-    4. Systematic & Biblical Theology: Connect this passage to major Christian doctrines and the "Scarlet Thread" of Christ's redemption throughout the entire Bible.
+    4. Systematic & Biblical Theology: Connect this passage to major Christian doctrines and the central theme of God's redemption through Christ throughout the entire Bible.
     5. Modern Application: Rooted deeply in the theology discussed, not just "feel-good" advice.
 
     Structure your response EXACTLY as follows (use JSON format):

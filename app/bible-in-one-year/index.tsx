@@ -44,7 +44,7 @@ export default function BibleInOneYearScreen() {
       flatListRef.current.scrollToIndex({
         index: todayIndex,
         animated: true,
-        viewPosition: 0.5
+        viewPosition: 0 // Align Today to the top of the screen
       });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
@@ -121,11 +121,14 @@ export default function BibleInOneYearScreen() {
           styles.listContent,
           { paddingBottom: insets.bottom + SPACING.xl }
         ]}
+        getItemLayout={(data, index) => ({
+          length: 112, // Exact card height + margin
+          offset: 112 * index,
+          index,
+        })}
         onScrollToIndexFailed={(info) => {
-          flatListRef.current?.scrollToOffset({
-            offset: info.averageItemLength * info.index,
-            animated: true
-          });
+          const offset = info.index * 112;
+          flatListRef.current?.scrollToOffset({ offset, animated: false });
         }}
         ListHeaderComponent={
           <View style={styles.header}>
@@ -248,6 +251,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.small,
     borderLeftWidth: 4,
     borderLeftColor: 'transparent',
+    height: 96, // Fixed height for reliable scrolling
   },
   dayCardToday: {
     borderLeftColor: COLORS.gold,
