@@ -566,7 +566,7 @@ return (
               <Ionicons name="map" size={20} color={COLORS.gold} />
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Historical Context</Text>
             </View>
-            <Text style={[styles.contextText, { color: colors.textSecondary }]}>{devotional.historicalContext}</Text>
+            <Text style={[styles.contextText, { color: colors.text }]}>{devotional.historicalContext}</Text>
           </View>
         )}
         {devotional.theologicalInsight && (
@@ -575,7 +575,7 @@ return (
               <Ionicons name="infinite" size={20} color={COLORS.gold} />
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Theological Insight</Text>
             </View>
-            <Text style={[styles.contextText, { color: colors.textSecondary }]}>{devotional.theologicalInsight}</Text>
+            <Text style={[styles.contextText, { color: colors.text }]}>{devotional.theologicalInsight}</Text>
           </View>
         )}
       </View>
@@ -643,12 +643,12 @@ return (
             <View style={styles.crossRefContent}>
               <Text style={[styles.crossRefReference, { color: colors.text }]}>{verse.reference}</Text>
               {verse.text && (
-                <Text style={[styles.crossRefText, { color: colors.textSecondary }]} numberOfLines={3}>
+                <Text style={[styles.crossRefText, { color: colors.text }]} numberOfLines={3}>
                   "{verse.text}"
                 </Text>
               )}
               {verse.explanation && verse.explanation !== verse.text && (
-                <Text style={[styles.crossRefExplanation, { color: colors.textSecondary, opacity: 0.8 }]}>{verse.explanation}</Text>
+                <Text style={[styles.crossRefExplanation, { color: colors.text, opacity: 0.8 }]}>{verse.explanation}</Text>
               )}
             </View>
           </View>
@@ -700,7 +700,7 @@ return (
         {devotional.questions.map((question, index) => (
           <View key={index} style={[styles.questionCard, { backgroundColor: colors.surface }]}>
             <Text style={styles.questionNumber}>Q{index + 1}</Text>
-            <Text style={[styles.questionText, { color: colors.textSecondary }]}>{question}</Text>
+            <Text style={[styles.questionText, { color: colors.text }]}>{question}</Text>
           </View>
         ))}
       </View>

@@ -356,7 +356,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
                   </View>
                 )}
 
-                <Text style={[styles.previewText, { color: colors.textSecondary }]} numberOfLines={6}>
+                <Text style={[styles.previewText, { color: colors.text }]} numberOfLines={6}>
                   {devotional.content}
                 </Text>
 

@@ -14,7 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
-import store from '../../services/store';
+import * as store from '../../services/store';
 import notifications, { REMINDER_TYPES } from '../../services/notifications';
 import { useAppTheme } from '../../context/ThemeContext';
 

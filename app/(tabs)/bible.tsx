@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import bibleAPIService from '../../services/bibleApi';
-import store from '../../services/store';
+import * as store from '../../services/store';
 import { API_CONFIG } from '../../services/config';
 import { useAppTheme } from '../../context/ThemeContext';
 

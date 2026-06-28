@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import * as Speech from 'expo-speech';
 import React, { useEffect, useRef, useState } from 'react';
@@ -26,7 +26,7 @@ import { COLORS, FONTS, SHADOWS, isTablet } from '../../constants/theme';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import bibleApi from '../../services/bibleApi';
 import openaiService from '../../services/openai';
-import store from '../../services/store';
+import * as store from '../../services/store';
 import { useAppTheme } from '../../context/ThemeContext';
 
 const { width, height } = Dimensions.get('window');
@@ -73,6 +73,7 @@ export default function BibleReaderScreen() {
   const { colors, isDarkMode } = useAppTheme();
   const { bibleId, reference } = useLocalSearchParams<{ bibleId: string; reference?: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
@@ -97,6 +98,8 @@ export default function BibleReaderScreen() {
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const isSpeakingRef = useRef<boolean>(false);
+  const [audioPrefs, setAudioPrefs] = useState<any>(null);
+  const [isSavingImage, setIsSavingImage] = useState(false);
   const viewShotRef = useRef<any>(null);
 
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
@@ -126,7 +129,20 @@ export default function BibleReaderScreen() {
   useEffect(() => {
     loadInitialData();
     loadSearchHistory();
-  }, [bibleId, reference]);
+    loadAudioPrefs();
+
+    // Refresh audio prefs when screen is focused (e.g. after changing in settings)
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadAudioPrefs();
+    });
+
+    return unsubscribe;
+  }, [bibleId, reference, navigation]);
+
+  const loadAudioPrefs = async () => {
+    const prefs = await store.getAudioPreferences();
+    setAudioPrefs(prefs);
+  };
 
   const loadSearchHistory = async () => {
     const history = await store.getCachedData('bible_search_history') || [];
@@ -489,46 +505,111 @@ export default function BibleReaderScreen() {
     }
   };
 
+  const stopSpeech = async () => {
+    isSpeakingRef.current = false;
+    setIsSpeaking(false);
+    try {
+      await Speech.stop();
+    } catch (e) {
+      console.log('Stop error:', e);
+    }
+  };
+
   const toggleSpeech = async () => {
-    if (isSpeaking) {
-      Speech.stop();
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
+    // 0. Check if already speaking - if so, stop and EXIT
+    const talking = await Speech.isSpeakingAsync();
+    if (isSpeaking || isSpeakingRef.current || talking) {
+      await stopSpeech();
       return;
     }
 
     if (verses.length === 0) return;
 
+    // 1. Double check we are fully stopped before a new session
+    await Speech.stop();
     setIsSpeaking(true);
     isSpeakingRef.current = true;
 
     try {
-      // Speak verses one by one to avoid length limits and provide better control
-      for (let i = 0; i < verses.length; i++) {
-        // Check if we should still be speaking (in case user stopped it)
-        if (!isSpeakingRef.current) break;
+      // 2. Fetch fresh prefs and available voices
+      const prefs = await store.getAudioPreferences();
+      const targetGender = prefs?.gender || 'female';
+      const rate = prefs?.rate || 0.9;
+      let voiceId = prefs?.voiceIdentifier;
 
-        await new Promise((resolve, reject) => {
-          Speech.speak(verses[i].text, {
+      const allVoices = await Speech.getAvailableVoicesAsync();
+      const englishVoices = allVoices.filter(v => v.language.toLowerCase().startsWith('en'));
+
+      // If no specific voice ID was saved (or it's no longer available), use heuristic
+      if (!voiceId) {
+        let selectedVoice = null;
+
+        if (targetGender === 'male') {
+          // Broad search for Male voices
+          selectedVoice = englishVoices.find(v =>
+            (v as any).gender === 'male' ||
+            ['daniel', 'arthur', 'fred', 'rishi', 'guy', 'david', 'male', 'premium', 'alex', 'casper', 'james', 'stefan', 'henry', 'george', 'william', 'robert', 'smtg02'].some(n => v.name.toLowerCase().includes(n)) ||
+            ['daniel', 'arthur', 'fred', 'rishi', 'guy', 'david', 'male', 'premium', 'alex', 'casper', 'james', 'stefan', 'henry', 'george', 'william', 'robert', 'smtg02'].some(n => v.identifier.toLowerCase().includes(n))
+          );
+
+          // If still no male match, filter OUT known female names
+          if (!selectedVoice) {
+            selectedVoice = englishVoices.find(v =>
+              !['samantha', 'moira', 'karen', 'nova', 'catherine', 'female', 'premium', 'victoria', 'serena', 'sara', 'zira', 'amy', 'lisa', 'nikita', 'tessa', 'ava', 'smtg01'].some(n => v.name.toLowerCase().includes(n))
+            );
+          }
+        } else {
+          // Broad search for Female voices
+          selectedVoice = englishVoices.find(v =>
+            (v as any).gender === 'female' ||
+            ['samantha', 'moira', 'karen', 'nova', 'catherine', 'female', 'premium', 'victoria', 'serena', 'sara', 'zira', 'amy', 'lisa', 'nikita', 'tessa', 'ava', 'smtg01'].some(n => v.name.toLowerCase().includes(n)) ||
+            ['samantha', 'moira', 'karen', 'nova', 'catherine', 'female', 'premium', 'victoria', 'serena', 'sara', 'zira', 'amy', 'lisa', 'nikita', 'tessa', 'ava', 'smtg01'].some(n => v.identifier.toLowerCase().includes(n))
+          );
+        }
+
+        // Final fallback
+        if (!selectedVoice) {
+          selectedVoice = englishVoices.find(v => v.quality === Speech.VoiceQuality.Enhanced) || englishVoices[0];
+        }
+
+        voiceId = selectedVoice?.identifier;
+      }
+
+      // 3. Main Reading Loop
+      for (let i = 0; i < verses.length; i++) {
+        // CHECK 1: Before starting any utterance
+        if (!isSpeakingRef.current) {
+          await Speech.stop();
+          break;
+        }
+
+        const verseText = verses[i].text;
+
+        await new Promise((resolve) => {
+          Speech.speak(verseText, {
+            voice: voiceId,
+            rate: rate,
             onDone: () => resolve(true),
             onStopped: () => {
+              isSpeakingRef.current = false;
               resolve(false);
             },
-            onError: (error) => {
-              console.error('Speech Error:', error);
-              reject(error);
-            },
+            onError: (err) => {
+              console.error('Speech iteration error:', err);
+              resolve(false);
+            }
           });
         });
 
-        // Short pause between verses for natural flow
-        if (isSpeakingRef.current && i < verses.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+        // CHECK 2: Immediately after every utterance finishes
+        if (!isSpeakingRef.current) {
+          await Speech.stop();
+          break;
         }
       }
     } catch (error) {
-      console.error('TTS Error:', error);
-      Alert.alert('Speech Error', 'There was a problem playing the audio.');
+      console.error('TTS Engine Error:', error);
+      Alert.alert('Audio Error', 'Could not play audio. Please check your system settings.');
     } finally {
       setIsSpeaking(false);
       isSpeakingRef.current = false;
@@ -1025,7 +1106,7 @@ export default function BibleReaderScreen() {
                     ) : (
                       <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
                     )}
-                    <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                    <Text style={[styles.bgOptionLabel, { color: colors.textSecondary }]}>{bg.label}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -1073,23 +1154,27 @@ export default function BibleReaderScreen() {
                       styles.colorOptionCard,
                       selectedTextColor.id === color.id && styles.colorOptionCardActive
                     ]}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setSelectedTextColor(color);
-                    }}
+                    onPress={() => setSelectedTextColor(color)}
                   >
                     <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
-                    <Text style={styles.colorOptionLabel}>{color.label}</Text>
+                    <Text style={[styles.colorOptionLabel, { color: colors.textSecondary }]}>{color.label}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
 
               <TouchableOpacity
-                style={styles.confirmShareButton}
+                style={[styles.confirmShareButton, isSavingImage && { opacity: 0.7 }]}
                 onPress={captureAndShareImage}
+                disabled={isSavingImage}
               >
-                <Ionicons name="share-social" size={22} color={COLORS.white} />
-                <Text style={styles.confirmShareText}>Share Now</Text>
+                {isSavingImage ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Ionicons name="share-social" size={22} color={COLORS.white} />
+                )}
+                <Text style={styles.confirmShareText}>
+                  {isSavingImage ? 'Preparing Image...' : 'Share Now'}
+                </Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

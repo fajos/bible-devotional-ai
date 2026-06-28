@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,7 +23,9 @@ import {
   formatSize,
   getCacheSize,
   setPreferredBibleVersion,
-  getPreferredBibleVersion
+  getPreferredBibleVersion,
+  getAudioPreferences,
+  setAudioPreferences
 } from '../../services/store';
 import notifications, { REMINDER_TYPES } from '../../services/notifications';
 import { useAppTheme } from '../../context/ThemeContext';
@@ -39,6 +42,8 @@ export default function SettingsScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerType, setPickerType] = useState<'devotional' | 'reading_plan'>('devotional');
   const [preferredVersion, setPreferredVersion] = useState('NKJV');
+  const [audioPrefs, setAudioPrefs] = useState({ gender: 'female', rate: 0.9, voiceIdentifier: null });
+  const [availableVoices, setAvailableVoices] = useState<any[]>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -46,6 +51,12 @@ export default function SettingsScreen() {
       await loadNotificationSettings();
       const version = await getPreferredBibleVersion();
       setPreferredVersion(version);
+      const aPrefs = await getAudioPreferences();
+      setAudioPrefs(aPrefs);
+
+      const voices = await Speech.getAvailableVoicesAsync();
+      setAvailableVoices(voices.filter(v => v.language.toLowerCase().startsWith('en')));
+
       setLoading(false);
     };
     init();
@@ -221,6 +232,26 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleAudioPrefChange = async (newPrefs: any) => {
+    try {
+      const updated = { ...audioPrefs, ...newPrefs };
+      await setAudioPreferences(updated);
+      setAudioPrefs(updated);
+      Haptics.selectionAsync();
+
+      // If voice was changed, do a quick test
+      if (newPrefs.voiceIdentifier) {
+        Speech.stop();
+        Speech.speak("The Lord is my shepherd", {
+          voice: newPrefs.voiceIdentifier,
+          rate: updated.rate,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update audio prefs:', error);
+    }
+  };
+
   const APP_VERSIONS = [
     { id: 'NKJV', name: 'NKJV' },
     { id: 'NIV', name: 'NIV' },
@@ -295,6 +326,82 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
+
+      {/* Audio Settings */}
+      <View style={[styles.section, dynamicStyles.section]}>
+        <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>AUDIO SETTINGS</Text>
+
+        <View style={[styles.settingItem, { borderBottomWidth: 0 }]}>
+          <View style={styles.settingInfo}>
+            <Text style={[styles.settingLabel, dynamicStyles.settingLabel]}>Reading Speed</Text>
+            <Text style={[styles.settingDescription, dynamicStyles.settingDescription]}>Adjust the pace of the narration</Text>
+          </View>
+        </View>
+        <View style={styles.speedRow}>
+          {[
+            { label: 'Slow', value: 0.7 },
+            { label: 'Normal', value: 0.9 },
+            { label: 'Fast', value: 1.1 }
+          ].map((speed) => (
+            <TouchableOpacity
+              key={speed.label}
+              style={[
+                styles.speedChip,
+                audioPrefs.rate === speed.value && styles.speedChipActive,
+                { backgroundColor: audioPrefs.rate === speed.value ? COLORS.gold : colors.offWhite }
+              ]}
+              onPress={() => handleAudioPrefChange({ rate: speed.value })}
+            >
+              <Text style={[
+                styles.speedChipText,
+                audioPrefs.rate === speed.value && styles.speedChipTextActive,
+                { color: audioPrefs.rate === speed.value ? COLORS.white : colors.text }
+              ]}>{speed.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {availableVoices.length > 0 && (
+          <>
+            <View style={[styles.settingItem, { borderBottomWidth: 0, marginTop: SPACING.sm }]}>
+              <View style={styles.settingInfo}>
+                <Text style={[styles.settingLabel, dynamicStyles.settingLabel]}>Narration Voice</Text>
+                <Text style={[styles.settingDescription, dynamicStyles.settingDescription]}>Pick a high-quality voice installed on your device</Text>
+              </View>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.voiceRow}>
+              {availableVoices.map((v) => {
+                const isSelected = audioPrefs.voiceIdentifier === v.identifier;
+                const isHighQual = v.quality === Speech.VoiceQuality.Enhanced || v.name.includes('Premium');
+                return (
+                  <TouchableOpacity
+                    key={v.identifier}
+                    style={[
+                      styles.voiceChip,
+                      isSelected && styles.voiceChipActive,
+                      { backgroundColor: isSelected ? COLORS.gold : colors.offWhite }
+                    ]}
+                    onPress={() => handleAudioPrefChange({ voiceIdentifier: v.identifier })}
+                  >
+                    <Text style={[
+                      styles.voiceChipText,
+                      isSelected && styles.voiceChipTextActive,
+                      { color: isSelected ? COLORS.white : colors.text }
+                    ]}>
+                      {v.name.includes('SMTg02') ? 'Male (Deep)' :
+                       v.name.includes('SMTg01') ? 'Female (Soft)' :
+                       v.name.includes('samantha') ? 'Samantha' :
+                       v.name.includes('daniel') ? 'Daniel' :
+                       v.name.replace('English (United States)', 'US').replace('English (United Kingdom)', 'UK').split('-').pop() || v.name}
+                    </Text>
+                    {isHighQual && <Ionicons name="sparkles" size={10} color={isSelected ? COLORS.white : COLORS.gold} style={{ marginLeft: 4 }} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </>
+        )}
       </View>
 
       {/* Notifications Section */}
@@ -494,6 +601,66 @@ const styles = StyleSheet.create({
   versionChipText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  genderToggle: {
+    flexDirection: 'row',
+  },
+  genderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+  },
+  genderButtonActive: {
+    backgroundColor: COLORS.gold,
+  },
+  genderButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.gold,
+    marginLeft: 4,
+  },
+  genderButtonTextActive: {
+    color: COLORS.white,
+  },
+  speedRow: {
+    flexDirection: 'row',
+    paddingVertical: SPACING.sm,
+  },
+  speedChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  speedChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  speedChipTextActive: {
+    fontWeight: '700',
+  },
+  voiceRow: {
+    flexDirection: 'row',
+    paddingVertical: SPACING.sm,
+  },
+  voiceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  voiceChipText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  voiceChipTextActive: {
+    fontWeight: '700',
   },
   dangerButton: {
     flexDirection: 'row',

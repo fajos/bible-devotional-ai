@@ -22,6 +22,7 @@ const PRAYER_JOURNAL_FILE = 'prayer_journal.json';
 const FAVORITE_BIBLES_KEY = 'favorite_bibles';
 const LEGACY_SAVED_DEVOTIONALS_KEY = 'savedDevotionals';
 const PREFERRED_VERSION_KEY = 'preferred_bible_version';
+const AUDIO_PREFS_KEY = 'audio_preferences';
 
 const BASE_DIR = Paths.document; // Persistent storage
 const BIBLE_CACHE_DIR = new Directory(Paths.cache, 'bible_cache');
@@ -56,6 +57,30 @@ export const getPreferredBibleVersion = async () => {
     return saved || 'NKJV'; // Default to NKJV
   } catch (error) {
     return 'NKJV';
+  }
+};
+
+// --- Audio Preferences ---
+
+export const setAudioPreferences = async (prefs) => {
+  try {
+    await AsyncStorage.setItem(AUDIO_PREFS_KEY, JSON.stringify(prefs));
+  } catch (error) {
+    console.error('Error saving audio prefs:', error);
+  }
+};
+
+export const getAudioPreferences = async () => {
+  try {
+    const saved = await AsyncStorage.getItem(AUDIO_PREFS_KEY);
+    return saved ? JSON.parse(saved) : {
+      voiceIdentifier: null,
+      rate: 0.9,
+      pitch: 1.0,
+      gender: 'female'
+    };
+  } catch (error) {
+    return { voiceIdentifier: null, rate: 0.9, pitch: 1.0, gender: 'female' };
   }
 };
 
@@ -649,4 +674,8 @@ export default {
   setDailyDevotional,
   getPrayers,
   savePrayers,
+  getAudioPreferences,
+  setAudioPreferences,
+  getPreferredBibleVersion,
+  setPreferredBibleVersion,
 };
