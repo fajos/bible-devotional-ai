@@ -21,10 +21,10 @@ import {
 import ViewShot from 'react-native-view-shot';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
 import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import bibleAPIService from '../../services/bibleApi';
 import { generateDailyDevotional } from '../../services/devotionalEngine';
 import * as store from '../../services/store';
-import { useAppTheme } from '../../context/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
@@ -455,7 +455,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
 
           {selectedMood && (
             <Animated.View style={[styles.moodInspiration, { opacity: fadeAnim, backgroundColor: colors.surface }]}>
-              <Ionicons name="quote-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
+              <Ionicons name="chatbox-ellipses-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
               <Text style={[styles.moodVerse, { color: colors.text }]}>{selectedMood.verse}</Text>
               <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
               <TouchableOpacity

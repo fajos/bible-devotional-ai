@@ -24,6 +24,8 @@ import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme
 import * as store from '../../services/store';
 import bibleApi from '../../services/bibleApi';
 import { useAppTheme } from '../../context/ThemeContext';
+import ScripturePreviewModal from '../../components/ScripturePreviewModal';
+import { wrapScriptures } from '../../utils/scriptureParser';
 
 const { width } = Dimensions.get('window');
 
@@ -140,6 +142,9 @@ export default function DevotionalDetailScreen(): JSX.Element {
     const [shareModalVisible, setShareModalVisible] = useState<boolean>(false);
 
     const [isSavingImage, setIsSavingImage] = useState<boolean>(false);
+
+    const [previewVisible, setPreviewVisible] = useState(false);
+    const [previewReference, setPreviewReference] = useState<string | null>(null);
 
     const isLightBg: boolean = selectedBackground.id === 'parchment';
     const textColor: string = isLightBg ? COLORS.primary : COLORS.white;
@@ -566,7 +571,27 @@ return (
               <Ionicons name="map" size={20} color={COLORS.gold} />
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Historical Context</Text>
             </View>
-            <Text style={[styles.contextText, { color: colors.text }]}>{devotional.historicalContext}</Text>
+            <Text style={[styles.contextText, { color: colors.text }]}>
+              {wrapScriptures(devotional.historicalContext).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                if (part.startsWith('[[') && part.endsWith(']]')) {
+                  const ref = part.slice(2, -2);
+                  return (
+                    <Text
+                      key={i}
+                      style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                      onPress={() => {
+                        setPreviewReference(ref);
+                        setPreviewVisible(true);
+                        Haptics.selectionAsync();
+                      }}
+                    >
+                      {ref}
+                    </Text>
+                  );
+                }
+                return part;
+              })}
+            </Text>
           </View>
         )}
         {devotional.theologicalInsight && (
@@ -575,7 +600,27 @@ return (
               <Ionicons name="infinite" size={20} color={COLORS.gold} />
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Theological Insight</Text>
             </View>
-            <Text style={[styles.contextText, { color: colors.text }]}>{devotional.theologicalInsight}</Text>
+            <Text style={[styles.contextText, { color: colors.text }]}>
+              {wrapScriptures(devotional.theologicalInsight).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                if (part.startsWith('[[') && part.endsWith(']]')) {
+                  const ref = part.slice(2, -2);
+                  return (
+                    <Text
+                      key={i}
+                      style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                      onPress={() => {
+                        setPreviewReference(ref);
+                        setPreviewVisible(true);
+                        Haptics.selectionAsync();
+                      }}
+                    >
+                      {ref}
+                    </Text>
+                  );
+                }
+                return part;
+              })}
+            </Text>
           </View>
         )}
       </View>
@@ -591,12 +636,45 @@ return (
       </View>
       <View style={[styles.contentCard, { backgroundColor: colors.surface }]}>
         {devotional.content ? (
-          <Markdown style={{
-            ...markdownStyles,
-            body: { ...markdownStyles.body, color: colors.text },
-            strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
-          }}>
-            {devotional.content}
+          <Markdown
+            style={{
+              ...markdownStyles,
+              body: { ...markdownStyles.body, color: colors.text },
+              strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
+            }}
+            rules={{
+              text: (node, children, parent, styles) => {
+                const text = node.content;
+                if (!text) return null;
+
+                const parts = text.split(/(\[\[.*?\]\])/g);
+                return (
+                  <Text key={node.key} style={styles.body}>
+                    {parts.map((part: string, i: number) => {
+                      if (part.startsWith('[[') && part.endsWith(']]')) {
+                        const ref = part.slice(2, -2);
+                        return (
+                          <Text
+                            key={i}
+                            style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                            onPress={() => {
+                              setPreviewReference(ref);
+                              setPreviewVisible(true);
+                              Haptics.selectionAsync();
+                            }}
+                          >
+                            {ref}
+                          </Text>
+                        );
+                      }
+                      return part;
+                    })}
+                  </Text>
+                );
+              }
+            }}
+          >
+            {wrapScriptures(devotional.content)}
           </Markdown>
         ) : (
           <Text style={[styles.contentText, { color: colors.textSecondary }]}>Content loading...</Text>
@@ -604,7 +682,7 @@ return (
       </View>
     </View>
 
-    {/* OT Shadows & NT Fulfillment */}
+    {/* Synthesis Box with click support */}
     {(devotional.oldTestamentShadows || devotional.newTestamentFulfillment) && (
       <View style={styles.synthesisSection}>
         <View style={styles.sectionHeader}>
@@ -615,13 +693,53 @@ return (
           {devotional.oldTestamentShadows && (
             <View style={styles.synthesisBox}>
               <Text style={styles.synthesisLabel}>OLD TESTAMENT SHADOW</Text>
-              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>{devotional.oldTestamentShadows}</Text>
+              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>
+                {wrapScriptures(devotional.oldTestamentShadows).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                  if (part.startsWith('[[') && part.endsWith(']]')) {
+                    const ref = part.slice(2, -2);
+                    return (
+                      <Text
+                        key={i}
+                        style={{ color: COLORS.gold, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                        onPress={() => {
+                          setPreviewReference(ref);
+                          setPreviewVisible(true);
+                          Haptics.selectionAsync();
+                        }}
+                      >
+                        {ref}
+                      </Text>
+                    );
+                  }
+                  return part;
+                })}
+              </Text>
             </View>
           )}
           {devotional.newTestamentFulfillment && (
             <View style={[styles.synthesisBox, { borderTopWidth: 1, borderTopColor: 'rgba(212, 175, 55, 0.2)', paddingTop: SPACING.md, marginTop: SPACING.md }]}>
               <Text style={styles.synthesisLabel}>NEW TESTAMENT FULFILLMENT</Text>
-              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>{devotional.newTestamentFulfillment}</Text>
+              <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>
+                {wrapScriptures(devotional.newTestamentFulfillment).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                  if (part.startsWith('[[') && part.endsWith(']]')) {
+                    const ref = part.slice(2, -2);
+                    return (
+                      <Text
+                        key={i}
+                        style={{ color: COLORS.gold, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                        onPress={() => {
+                          setPreviewReference(ref);
+                          setPreviewVisible(true);
+                          Haptics.selectionAsync();
+                        }}
+                      >
+                        {ref}
+                      </Text>
+                    );
+                  }
+                  return part;
+                })}
+              </Text>
             </View>
           )}
         </View>
@@ -636,7 +754,15 @@ return (
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Bible Verses</Text>
         </View>
         {devotional.verses.map((verse, index) => (
-          <View key={index} style={[styles.crossRefCard, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity
+            key={index}
+            style={[styles.crossRefCard, { backgroundColor: colors.surface }]}
+            onPress={() => {
+              setPreviewReference(verse.reference);
+              setPreviewVisible(true);
+              Haptics.selectionAsync();
+            }}
+          >
             <View style={styles.crossRefNumber}>
               <Text style={styles.crossRefNumberText}>{index + 1}</Text>
             </View>
@@ -651,7 +777,7 @@ return (
                 <Text style={[styles.crossRefExplanation, { color: colors.text, opacity: 0.8 }]}>{verse.explanation}</Text>
               )}
             </View>
-          </View>
+          </TouchableOpacity>
         ))}
       </View>
     )}
@@ -716,6 +842,13 @@ return (
         <Text style={[styles.generateNewText, { color: isDarkMode ? colors.gold : COLORS.white }]}>Search New Topic</Text>
       </TouchableOpacity>
     </View>
+
+    <ScripturePreviewModal
+      visible={previewVisible}
+      reference={previewReference}
+      onClose={() => setPreviewVisible(false)}
+      bibleVersion={devotional.bibleVersion}
+    />
 
     {/* Share Modal */}
     <Modal

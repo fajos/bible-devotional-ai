@@ -5,30 +5,30 @@ import * as Haptics from 'expo-haptics';
 import * as Speech from 'expo-speech';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
+import notifications, { REMINDER_TYPES } from '../../services/notifications';
 import {
   clearAllFileSystemData,
   clearCache,
   clearHighlights,
   formatSize,
-  getCacheSize,
-  setPreferredBibleVersion,
-  getPreferredBibleVersion,
   getAudioPreferences,
-  setAudioPreferences
+  getCacheSize,
+  getPreferredBibleVersion,
+  setAudioPreferences,
+  setPreferredBibleVersion
 } from '../../services/store';
-import notifications, { REMINDER_TYPES } from '../../services/notifications';
-import { useAppTheme } from '../../context/ThemeContext';
 
 export default function SettingsScreen() {
   const { isDarkMode, toggleDarkMode, colors } = useAppTheme();
@@ -255,10 +255,10 @@ export default function SettingsScreen() {
   const APP_VERSIONS = [
     { id: 'NKJV', name: 'NKJV' },
     { id: 'NIV', name: 'NIV' },
-    { id: 'ESV', name: 'ESV' },
+    { id: 'GNT', name: 'GNT' },
     { id: 'KJV', name: 'KJV' },
-    { id: 'NLT', name: 'NLT' },
     { id: 'AMP', name: 'AMP' },
+    { id: 'MSG', name: 'MSG' },
   ];
 
   if (loading) return null;
@@ -505,18 +505,40 @@ export default function SettingsScreen() {
       </View>
 
       {/* About Section */}
-      <View style={[styles.section, dynamicStyles.section]}>
-        <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>ABOUT</Text>
-        <View style={styles.aboutContainer}>
-          <Ionicons name="book" size={40} color={COLORS.gold} />
-          <Text style={[styles.appName, dynamicStyles.appName]}>Bible Devotional AI</Text>
-          <Text style={styles.appVersion}>Version 1.0.0</Text>
-          <Text style={[styles.appDescription, dynamicStyles.appDescription]}>
-            AI-powered Bible study and devotional app. Generate personalized studies 
-            based on any topic, with verified scripture from multiple Bible versions.
-          </Text>
-        </View>
-      </View>
+<View style={[styles.section, dynamicStyles.section]}>
+  <Text style={[styles.sectionTitle, dynamicStyles.sectionTitle]}>ABOUT</Text>
+  <View style={styles.aboutContainer}>
+    <Ionicons name="book" size={40} color={COLORS.gold} />
+    <Text style={[styles.appName, dynamicStyles.appName]}>Bible Devotional AI</Text>
+    <Text style={styles.appVersion}>Version 1.0.0</Text>
+    <Text style={[styles.appDescription, dynamicStyles.appDescription]}>
+      AI-powered Bible study and devotional app. Generate personalized studies
+      based on any topic, with verified scripture from multiple Bible versions.
+    </Text>
+  </View>
+
+  {/* Divider */}
+  <View style={[styles.aboutDivider, { backgroundColor: colors.offWhite }]} />
+
+  {/* Developer Info */}
+  <View style={styles.developerContainer}>
+    <Text style={[styles.developerLabel, { color: colors.textSecondary }]}>Developed by</Text>
+    <Text style={[styles.developerName, { color: colors.text }]}>Fajostech</Text>
+
+    <TouchableOpacity
+      style={[styles.websiteButton, { borderColor: colors.gold }]}
+      onPress={() => {
+        const { Linking } = require('react-native');
+        Linking.openURL('https://fajostech.com');
+      }}
+    >
+      <Ionicons name="globe-outline" size={14} color={COLORS.gold} />
+      <Text style={styles.websiteText}>fajostech.com</Text>
+    </TouchableOpacity>
+  </View>
+
+
+</View>
 
       {/* Footer */}
       <View style={styles.footer}>
@@ -569,6 +591,52 @@ const styles = StyleSheet.create({
     color: COLORS.gray,
     marginTop: 2,
   },
+  aboutDivider: {
+  height: 1,
+  marginVertical: SPACING.md,
+},
+developerContainer: {
+  alignItems: 'center',
+  paddingBottom: SPACING.md,
+},
+developerLabel: {
+  fontSize: FONTS.ui.size.tiny,
+  letterSpacing: 0.5,
+  marginBottom: 4,
+},
+developerName: {
+  fontSize: FONTS.ui.size.large,
+  fontWeight: '700',
+  marginBottom: SPACING.sm,
+},
+websiteButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  borderWidth: 1,
+  borderRadius: 20,
+  paddingHorizontal: 14,
+  paddingVertical: 6,
+  gap: 6,
+},
+websiteText: {
+  fontSize: FONTS.ui.size.small,
+  fontWeight: '600',
+  color: COLORS.gold,
+},
+legalRow: {
+  flexDirection: 'row',
+  justifyContent: 'center',
+  alignItems: 'center',
+  paddingBottom: SPACING.sm,
+  gap: 8,
+},
+legalLink: {
+  fontSize: FONTS.ui.size.tiny,
+  textDecorationLine: 'underline',
+},
+legalDot: {
+  fontSize: FONTS.ui.size.small,
+},
   switchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -636,6 +704,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginRight: 8,
   },
+  speedChipActive: {
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+  },
   speedChipText: {
     fontSize: 12,
     fontWeight: '600',
@@ -654,6 +726,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  voiceChipActive: {
+    borderWidth: 1,
+    borderColor: COLORS.gold,
   },
   voiceChipText: {
     fontSize: 10,

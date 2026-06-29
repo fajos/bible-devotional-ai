@@ -1,35 +1,64 @@
-import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Share,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import bibleApi from '../../services/bibleApi';
-import store from '../../services/store';
+import * as store from '../../services/store';
 
-const POPULAR_BIBLES = [
-  { id: 'NKJV', name: 'NKJV', fullName: 'New King James Version' },
+interface BibleVersion {
+  id: string;
+  name: string;
+  fullName?: string;
+  abbreviation?: string;
+}
+
+interface Verse {
+  number: string;
+  text: string;
+}
+
+interface FormattedVerse {
+  content?: string;
+  verses?: Verse[];
+  reference?: string;
+}
+
+interface VerseComparison {
+  bibleName: string;
+  bibleFullName?: string;
+  text: string;
+  verses?: Verse[];
+  reference: string;
+}
+
+const POPULAR_BIBLES: BibleVersion[] = [
+  { id: 'GH_AMP', name: 'AMP', fullName: 'Amplified Bible' },
   { id: 'MSG', name: 'MSG', fullName: 'The Message' },
-  { id: 'KJV', name: 'KJV', fullName: 'King James Version' },
-  { id: 'ESV', name: 'ESV', fullName: 'English Standard Version' },
+  { id: 'GH_KJV', name: 'KJV', fullName: 'King James Version' },
+  { id: 'GH_GNT', name: 'GNT', fullName: 'Good News Translation' },
+  { id: 'GH_NLT', name: 'NLT', fullName: 'New Living Translation' },
 ];
 
 export default function VerseCompareScreen() {
-  const { reference } = useLocalSearchParams();
+  const { colors, isDarkMode } = useAppTheme();
+  const { reference } = useLocalSearchParams<{ reference: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [loading, setLoading] = useState(true);
-  const [results, setResults] = useState([]);
-  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [results, setResults] = useState<VerseComparison[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadComparisons();
@@ -43,7 +72,7 @@ export default function VerseCompareScreen() {
       const biblesToCompare = savedBibles.length > 0 ? savedBibles : POPULAR_BIBLES;
 
       const comparisons = await Promise.all(
-        biblesToCompare.map(async (bible) => {
+        biblesToCompare.map(async (bible: { id: any; name: any; abbreviation: any; fullName: any; }) => {
           try {
             const verse = await bibleApi.getFormattedVerse(bible.id, reference);
             return {
@@ -87,8 +116,8 @@ export default function VerseCompareScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: colors.background, paddingBottom: insets.bottom }]}>
+      <View style={[styles.header, { backgroundColor: isDarkMode ? colors.surface : COLORS.primary, paddingTop: insets.top }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
@@ -102,12 +131,12 @@ export default function VerseCompareScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.center}>
+        <View style={styles.center1}>
           <ActivityIndicator size="large" color={COLORS.gold} />
-          <Text style={styles.loadingText}>Comparing versions...</Text>
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Comparing versions...</Text>
         </View>
       ) : error ? (
-        <View style={styles.center}>
+        <View style={styles.center1}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadComparisons}>
             <Text style={styles.retryText}>Retry</Text>
@@ -116,22 +145,22 @@ export default function VerseCompareScreen() {
       ) : (
         <ScrollView style={styles.content}>
           {results.map((result, index) => (
-            <View key={index} style={styles.comparisonCard}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.bibleName}>{result.bibleName}</Text>
-                <Text style={styles.bibleFullName}>{result.bibleFullName}</Text>
+            <View key={index} style={[styles.comparisonCard, { backgroundColor: colors.surface }]}>
+              <View style={[styles.cardHeader, { borderBottomColor: colors.offWhite }]}>
+                <Text style={[styles.bibleName, { color: isDarkMode ? colors.gold : colors.primary }]}>{result.bibleName}</Text>
+                <Text style={[styles.bibleFullName, { color: colors.textSecondary }]}>{result.bibleFullName}</Text>
               </View>
               {result.verses && result.verses.length > 0 ? (
                 <View style={styles.versesContainer}>
                   {result.verses.map((v, i) => (
-                    <Text key={i} style={styles.verseText}>
+                    <Text key={i} style={[styles.verseText, { color: colors.text }]}>
                       <Text style={styles.verseNumber}>{v.number} </Text>
                       {v.text}
                     </Text>
                   ))}
                 </View>
               ) : (
-                <Text style={styles.verseText}>{result.text}</Text>
+                <Text style={[styles.verseText, { color: colors.text }]}>{result.text}</Text>
               )}
             </View>
           ))}
@@ -145,7 +174,6 @@ export default function VerseCompareScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.offWhite,
   },
   header: {
     backgroundColor: COLORS.primary,
@@ -175,7 +203,7 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  center: {
+  center1: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -183,7 +211,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: COLORS.textSecondary,
     fontSize: 16,
   },
   errorText: {
@@ -207,7 +234,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   comparisonCard: {
-    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -222,23 +248,19 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     marginBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
     paddingBottom: 4,
   },
   bibleName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: COLORS.primary,
     marginRight: 8,
   },
   bibleFullName: {
     fontSize: 12,
-    color: COLORS.textSecondary,
   },
   verseText: {
     fontSize: 16,
     lineHeight: 24,
-    color: COLORS.textPrimary,
     marginBottom: 8,
   },
   versesContainer: {

@@ -14,10 +14,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
-import bibleAPIService from '../../services/bibleApi';
-import * as store from '../../services/store';
-import { API_CONFIG } from '../../services/config';
 import { useAppTheme } from '../../context/ThemeContext';
+import bibleAPIService from '../../services/bibleApi';
+import { API_CONFIG } from '../../services/config';
+import * as store from '../../services/store';
 
 interface Bible {
   id: string;
@@ -300,7 +300,7 @@ export default function BibleScreen() {
         <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Search versions (e.g. NIV, Spanish...)"
+          placeholder="Search versions (e.g. NIV, ESV, KJV...)"
           placeholderTextColor={colors.textSecondary}
           value={searchQuery}
           onChangeText={handleSearch}
