@@ -6,7 +6,7 @@ import { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
-import { REMINDER_TYPES, requestPermissions } from '../services/notifications';
+import { REMINDER_TYPES, refreshNotifications, requestPermissions } from '../services/notifications';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 
 function RootLayoutContent() {
@@ -16,6 +16,7 @@ function RootLayoutContent() {
 
   useEffect(() => {
     requestPermissions();
+    refreshNotifications();
 
     Notifications.getLastNotificationResponseAsync().then(response => {
       if (response) {
@@ -39,7 +40,7 @@ function RootLayoutContent() {
       const data = response.notification.request.content.data;
       if (data?.type === REMINDER_TYPES.PRAYER) {
         setTimeout(() => router.push('/prayer'), 100);
-      } else if (data?.type === REMINDER_TYPES.DEVOTIONAL) {
+      } else if (data?.type === REMINDER_TYPES.DEVOTIONAL || data?.type === REMINDER_TYPES.VOTD) {
         setTimeout(() => router.push('/(tabs)'), 100);
       }
     } catch (error) {

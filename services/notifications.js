@@ -16,6 +16,7 @@ export const REMINDER_TYPES = {
   PRAYER: 'prayer_reminder',
   DEVOTIONAL: 'devotional_reminder',
   READING_PLAN: 'reading_plan_reminder',
+  VOTD: 'votd_reminder',
 };
 
 /**
@@ -104,11 +105,91 @@ export async function scheduleDailyReminder(type, hour, minute) {
  */
 export async function cancelReminder(type) {
   const settings = await store.getCachedData('notification_settings') || {};
-  if (settings[type] && settings[type].identifier) {
-    await Notifications.cancelScheduledNotificationAsync(settings[type].identifier);
+  if (settings[type]) {
+    if (settings[type].identifier) {
+      await Notifications.cancelScheduledNotificationAsync(settings[type].identifier);
+    }
+    // Handle array of identifiers (for batch scheduling like VOTD)
+    if (Array.isArray(settings[type].identifiers)) {
+      for (const id of settings[type].identifiers) {
+        await Notifications.cancelScheduledNotificationAsync(id);
+      }
+    }
     settings[type].enabled = false;
     settings[type].identifier = null;
+    settings[type].identifiers = null;
     await store.setCachedData('notification_settings', settings);
+  }
+}
+
+/**
+ * Schedules Verse of the Day notifications for the next 7 days.
+ */
+export async function scheduleVOTDReminders(hour, minute) {
+  const { getOrGenerateVOTD, refillVOTDCache } = require('./devotionalEngine');
+
+  await cancelReminder(REMINDER_TYPES.VOTD);
+
+  const hasPermission = await requestPermissions();
+  if (!hasPermission) return false;
+
+  // Ensure we have 7 days of content
+  await refillVOTDCache();
+
+  const identifiers = [];
+  const today = new Date();
+
+  for (let i = 0; i < 7; i++) {
+    const scheduledDate = new Date(today);
+    scheduledDate.setDate(today.getDate() + i);
+
+    // Set the specific time
+    scheduledDate.setHours(hour, minute, 0, 0);
+
+    // If the time has already passed for today, skip to tomorrow
+    if (i === 0 && scheduledDate <= new Date()) {
+      continue;
+    }
+
+    const votd = await getOrGenerateVOTD(scheduledDate);
+    if (!votd) continue;
+
+    const identifier = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `Verse of the Day: ${votd.reference}`,
+        body: votd.reflection,
+        data: {
+          type: REMINDER_TYPES.VOTD,
+          date: scheduledDate.toDateString()
+        },
+      },
+      trigger: scheduledDate,
+    });
+    identifiers.push(identifier);
+  }
+
+  // Save identifiers to store
+  const settings = await store.getCachedData('notification_settings') || {};
+  settings[REMINDER_TYPES.VOTD] = {
+    identifiers,
+    hour,
+    minute,
+    enabled: true
+  };
+  await store.setCachedData('notification_settings', settings);
+
+  return identifiers.length > 0;
+}
+
+/**
+ * Refreshes all active notifications. Useful to call on app startup.
+ */
+export async function refreshNotifications() {
+  const settings = await store.getCachedData('notification_settings') || {};
+
+  if (settings[REMINDER_TYPES.VOTD]?.enabled) {
+    const { hour, minute } = settings[REMINDER_TYPES.VOTD];
+    await scheduleVOTDReminders(hour, minute);
   }
 }
 

@@ -2,6 +2,7 @@
 import bibleAPIService from './bibleApi';
 import { API_CONFIG } from './config';
 import openaiService from './openai';
+import store from './store';
 
 class DevotionalEngine {
   constructor() {
@@ -585,3 +586,177 @@ export const generateBibleStudy = (topic, bibleVersion) =>
 
 export const generateReadingPlan = (topic, durationDays, bibleVersion) =>
   devotionalEngine.generateReadingPlan(topic, durationDays, bibleVersion);
+
+export const getOrGenerateVOTD = async (date = new Date()) => {
+  const dateKey = date.toDateString();
+  const cacheKey = 'votd_cache';
+
+  let votdCache = await store.getCachedData(cacheKey) || {};
+
+  if (votdCache[dateKey]) {
+    return votdCache[dateKey];
+  }
+
+  // If not in cache, we need to refill
+  await refillVOTDCache();
+
+  // Try reading cache again
+  votdCache = await store.getCachedData(cacheKey) || {};
+  return votdCache[dateKey] || null;
+};
+
+export const refillVOTDCache = async () => {
+  try {
+    const cacheKey = 'votd_cache';
+    const votdCache = await store.getCachedData(cacheKey) || {};
+    const preferredVersion = await store.getPreferredBibleVersion();
+
+    // Check how many days we have from today onwards
+    const today = new Date();
+    let missingDays = [];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const dKey = d.toDateString();
+      if (!votdCache[dKey]) {
+        missingDays.push(dKey);
+      }
+    }
+
+    if (missingDays.length > 0) {
+      console.log(`Refilling VOTD cache for ${missingDays.length} days...`);
+      const newEntries = await openaiService.generateVerseOfTheDayBatch(Math.max(7, missingDays.length), preferredVersion);
+
+      if (Array.isArray(newEntries)) {
+        missingDays.forEach((dateKey, index) => {
+          if (newEntries[index]) {
+            votdCache[dateKey] = {
+              ...newEntries[index],
+              version: preferredVersion,
+              generatedAt: new Date().toISOString()
+            };
+          }
+        });
+
+        await store.setCachedData(cacheKey, votdCache);
+      }
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error refilling VOTD cache:', error);
+    return false;
+  }
+};
+
+export const getWeeklyCharacterSpotlight = async (bibleVersion = 'NKJV') => {
+  try {
+    // Get week number to use as part of the cache key
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const diff = now.getTime() - start.getTime();
+    const oneWeek = 1000 * 60 * 60 * 24 * 7;
+    const weekNumber = Math.floor(diff / oneWeek);
+    const cacheKey = `character_spotlight_${now.getFullYear()}_W${weekNumber}_${bibleVersion}`;
+
+    const cached = await store.getCachedData(cacheKey);
+    if (cached) return cached;
+
+    console.log(`Generating weekly character spotlight for week ${weekNumber}...`);
+    const aiContent = await openaiService.generateCharacterSpotlight(bibleVersion);
+
+    // Parse the response
+    const spotlight = parseCharacterSpotlightResponse(aiContent, bibleVersion);
+    spotlight.id = cacheKey;
+    spotlight.date = now.toISOString();
+
+    // Fetch key verse text
+    if (spotlight.keyVerse && spotlight.keyVerse.reference) {
+      const verseData = await bibleAPIService.getFormattedVerse(
+        bibleVersion,
+        spotlight.keyVerse.reference
+      );
+      if (verseData) {
+        spotlight.keyVerse.text = verseData.text || verseData.content;
+      }
+    }
+
+    await store.setCachedData(cacheKey, spotlight);
+    return spotlight;
+  } catch (error) {
+    console.error('Error in getWeeklyCharacterSpotlight:', error);
+    return null;
+  }
+};
+
+const parseCharacterSpotlightResponse = (aiContent, bibleVersion) => {
+  const stripMarkdown = (text) => {
+    if (!text) return '';
+    return text
+      .replace(/#+\s/g, '')
+      .replace(/\*\*/g, '')
+      .replace(/\*/g, '')
+      .replace(/__/g, '')
+      .replace(/`/g, '')
+      .replace(/^[\s-•*]+/, '')
+      .trim();
+  };
+
+  const sections = {
+    character: '',
+    topic: '', // Will use theological title as topic
+    keyVerse: { reference: '', text: '' },
+    biblicalNarrative: '',
+    strengthsAndVirtues: [],
+    failuresAndLessons: [],
+    christConnection: '',
+    application: '', // Modern application
+    prayer: '',
+    type: 'character_spotlight',
+    bibleVersion
+  };
+
+  const lines = aiContent.split('\n');
+  let currentSection = '';
+
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed && !['biblicalNarrative', 'christConnection', 'application', 'prayer'].includes(currentSection)) return;
+
+    const cleanLine = stripMarkdown(trimmed);
+    const upper = cleanLine.toUpperCase().replace(/_/g, ' ').replace(/ /g, '');
+
+    if (upper.startsWith('CHARACTER')) {
+      sections.character = cleanLine.replace(/^CHARACTER:?\s*/i, '');
+    } else if (upper.startsWith('THEOLOGICALTITLE')) {
+      sections.topic = cleanLine.replace(/^THEOLOGICAL_TITLE:?\s*/i, '').replace(/^THEOLOGICAL TITLE:?\s*/i, '');
+    } else if (upper.startsWith('KEYVERSE')) {
+      sections.keyVerse.reference = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '');
+    } else if (upper.startsWith('BIBLICALNARRATIVE')) {
+      currentSection = 'biblicalNarrative';
+    } else if (upper.startsWith('STRENGTHSANDVIRTUES')) {
+      currentSection = 'strengthsAndVirtues';
+    } else if (upper.startsWith('FAILURESANDLESSONS')) {
+      currentSection = 'failuresAndLessons';
+    } else if (upper.startsWith('CHRISTCONNECTION')) {
+      currentSection = 'christConnection';
+    } else if (upper.startsWith('MODERNAPPLICATION')) {
+      currentSection = 'application';
+    } else if (upper.startsWith('PRAYER')) {
+      currentSection = 'prayer';
+    } else if (trimmed.match(/^[•\-*]/)) {
+      if (currentSection === 'strengthsAndVirtues') {
+        sections.strengthsAndVirtues.push(cleanLine);
+      } else if (currentSection === 'failuresAndLessons') {
+        sections.failuresAndLessons.push(cleanLine);
+      }
+    } else if (currentSection) {
+      if (sections[currentSection] !== undefined && typeof sections[currentSection] === 'string') {
+        sections[currentSection] += (sections[currentSection] !== '' ? '\n' : '') + cleanLine;
+      }
+    }
+  });
+
+  return sections;
+};

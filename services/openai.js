@@ -233,6 +233,124 @@ class OpenAIService {
     }
   }
 
+  async generateVerseOfTheDayBatch(count = 7, bibleVersion = 'NKJV') {
+    const prompt = `Generate ${count} unique "Verse of the Day" entries.
+    Each entry must include:
+    1. A central Bible verse reference (from ${bibleVersion} version).
+    2. The full text of that verse.
+    3. A short, profound reflection (max 150 characters).
+    4. A short spiritual challenge or action step (max 100 characters).
+
+    Ensure a diverse range of themes (Grace, Wisdom, Courage, Love, etc.).
+    Respond ONLY with a JSON array of objects.
+    IMPORTANT: Do not truncate the response. Ensure all ${count} items are complete.
+
+    Structure:
+    [
+      {
+        "reference": "John 3:16",
+        "text": "For God so loved the world...",
+        "reflection": "A reminder of God's infinite love for us.",
+        "challenge": "Share God's love with someone today through a kind act."
+      }
+    ]`;
+
+    const response = await this.generateContent(prompt, "You are a pastoral theologian who provides concise, powerful daily spiritual insights. Respond only with valid JSON. Never leave the JSON incomplete.");
+
+    try {
+      // Robust JSON extraction
+      let jsonString = response;
+      const firstBracket = response.indexOf('[');
+      const lastBracket = response.lastIndexOf(']');
+
+      if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+        jsonString = response.substring(firstBracket, lastBracket + 1);
+      }
+
+      // Attempt to fix common truncation issues by closing the array if it looks like it's cut off
+      if (!jsonString.endsWith(']')) {
+        console.warn("Detected potentially truncated JSON, attempting to fix...");
+        // If it ends with a comma, remove it
+        jsonString = jsonString.trim();
+        if (jsonString.endsWith(',')) {
+          jsonString = jsonString.slice(0, -1);
+        }
+        // If it doesn't end with a closing brace for an object, try to find the last complete object
+        if (!jsonString.endsWith('}')) {
+          const lastBrace = jsonString.lastIndexOf('}');
+          if (lastBrace !== -1) {
+            jsonString = jsonString.substring(0, lastBrace + 1);
+          }
+        }
+        jsonString += ']';
+      }
+
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.error("Failed to parse VOTD batch JSON:", error);
+      console.log("Raw response length:", response.length);
+      console.log("Raw response was:", response);
+      throw new Error("Could not generate Verse of the Day batch.");
+    }
+  }
+
+  async generateCharacterSpotlight(bibleVersion = 'NKJV') {
+    const prompt = `Create a deep, scholarly weekly "Bible Character Spotlight" using the ${bibleVersion} Bible version.
+
+    The spotlight should focus on a prominent or deeply significant biblical figure.
+
+    Please structure your response EXACTLY as follows (use these exact headers):
+
+    CHARACTER: [Name of the Character]
+
+    THEOLOGICAL_TITLE: [A compelling title capturing the essence of their life]
+
+    KEY_VERSE: [Primary verse reference related to them]
+
+    BIBLICAL_NARRATIVE:
+    [Provide a 3-4 paragraph summary of their life and role in the biblical story.]
+
+    STRENGTHS_AND_VIRTUES:
+    - [Strength]: [Description rooted in scripture]
+    - [Strength]: [Description rooted in scripture]
+
+    FAILURES_AND_LESSONS:
+    - [Failure/Lesson]: [Description of what we learn from their humanity]
+    - [Failure/Lesson]: [Description of what we learn from their humanity]
+
+    CHRIST_CONNECTION:
+    [Explain how this character's life serves as a type, shadow, or points to the person and work of Jesus Christ.]
+
+    MODERN_APPLICATION:
+    [Provide 2-3 substantial paragraphs on how their story applies to a believer's walk today.]
+
+    PRAYER: [A prayer inspired by the lessons from this character's life]`;
+
+    return await this.generateContent(prompt);
+  }
+
+  async generatePrayer(request, bibleVersion = 'NKJV') {
+    const prompt = `Task: Craft a deep, scripturally-rooted, and beautifully written prayer based on the following concern or request.
+
+    REQUEST: "${request}"
+    BIBLE VERSION: ${bibleVersion}
+
+    The prayer should:
+    1. Be written in the first person ("I" or "We").
+    2. Incorporate specific biblical promises and language directly into the prayer's flow.
+    3. Use a tone that is humble, reverent, and full of faith.
+    4. Include 2-3 specific Bible references (e.g., John 14:27) woven naturally into the sentences.
+    5. Be approximately 2-3 paragraphs long.
+
+    IMPORTANT:
+    - DO NOT use Markdown formatting (no **, ##, or bullet points).
+    - Use only plain text.
+    - Put the prayer's title on the first line.
+    - End with a section called "Scriptural Foundation" that lists the references used.`;
+
+    return await this.generateContent(prompt, "You are a pastoral theologian and expert in liturgical prayer. Your goal is to help believers find the right words to bring their deepest concerns before God, rooted firmly in the truth of His Word. Write in pure plain text, never use markdown symbols like asterisks or hashes.");
+  }
+
   async explainVerse(verseText, reference, bibleVersion = 'NKJV') {
     const prompt = `Provide a deep, scholarly contextual explanation for the following verse(s) from the ${bibleVersion} translation:
 

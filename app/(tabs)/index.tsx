@@ -8,7 +8,6 @@ import { JSX, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Dimensions,
   Modal,
   ScrollView,
@@ -20,10 +19,9 @@ import {
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import { BACKGROUND_OPTIONS, FONT_OPTIONS, TEXT_COLOR_OPTIONS } from '../../constants/sharing';
-import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
+import { COLORS, SHADOWS, SPACING, isTablet } from '../../constants/theme';
 import { useAppTheme } from '../../context/ThemeContext';
-import bibleAPIService from '../../services/bibleApi';
-import { generateDailyDevotional } from '../../services/devotionalEngine';
+import { generateDailyDevotional, getOrGenerateVOTD, getWeeklyCharacterSpotlight } from '../../services/devotionalEngine';
 import * as store from '../../services/store';
 
 const { width } = Dimensions.get('window');
@@ -43,6 +41,8 @@ interface DailyVerse {
   text: string;
   ref: string;
   version: string;
+  reflection?: string;
+  challenge?: string;
 }
 
 const DAILY_VERSES: DailyVerse[] = [
@@ -102,78 +102,95 @@ interface Devotional {
   prayer?: string;
 }
 
+interface CharacterSpotlight {
+  id: string;
+  character: string;
+  topic: string; // Theological title
+  keyVerse: { reference: string; text?: string };
+  biblicalNarrative: string;
+  strengthsAndVirtues: string[];
+  failuresAndLessons: string[];
+  christConnection: string;
+  application: string;
+  prayer: string;
+  type: string;
+}
+
 export default function DailyDevotionalScreen(): JSX.Element {
   const { colors, isDarkMode } = useAppTheme();
   const [devotional, setDevotional] = useState<Devotional | null>(null);
+  const [characterSpotlight, setCharacterSpotlight] = useState<CharacterSpotlight | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMessage, setLoadingMessage] = useState<string>('Opening the Word...');
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
+  const [readingProgress, setReadingProgress] = useState<any>(null);
+
   const [votd, setVotd] = useState<DailyVerse>(DAILY_VERSES[0]);
-  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const router = useRouter();
+  const viewShotRef = useRef<any>(null);
+  const [isSavingImage, setIsSavingImage] = useState<boolean>(false);
+
   const [selectedBackground, setSelectedBackground] = useState(BACKGROUND_OPTIONS[0]);
   const [selectedFont, setSelectedFont] = useState(FONT_OPTIONS[0]);
   const [selectedTextColor, setSelectedTextColor] = useState(TEXT_COLOR_OPTIONS[0]);
-  const [isSavingImage, setIsSavingImage] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
 
-  const fadeAnim = useState(new Animated.Value(0))[0];
-  const router = useRouter();
-  const viewShotRef = useRef<any>(null);
-
-  useEffect(() => {
-    // Determine Verse of the Day based on current date
-    const updateVotd = async () => {
-      const today = new Date();
-      const dayOfYear = Math.floor((today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 1000 / 60 / 60 / 24);
-      const index = dayOfYear % DAILY_VERSES.length;
-      const baseVerse = DAILY_VERSES[index];
-
-      try {
-        // Fetch the verse in preferred version from Bolls API
-        const version = await store.getPreferredBibleVersion();
-        const dynamicVerse = await bibleAPIService.getFormattedVerse(version, baseVerse.ref);
-        if (dynamicVerse) {
-          setVotd({
-            text: dynamicVerse.content,
-            ref: dynamicVerse.reference,
-            version: version
-          });
-        } else {
-          setVotd(baseVerse);
-        }
-      } catch (error) {
-        console.error('Error fetching VOTD:', error);
-        setVotd(baseVerse);
-      }
-    };
-
-    updateVotd();
-  }, []);
-
-  useEffect(() => {
-    if (selectedMood) {
-      fadeAnim.setValue(0);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [selectedMood]);
-
-  const loadingMessages = [
-    'Opening the Word...',
-    'Seeking wisdom...',
-    'Preparing your daily bread...',
-    'Gathering scripture...',
-    'Crafting your devotional...',
-    'Almost ready...',
-  ];
+  const isLightBg = selectedBackground.id === 'parchment';
 
   useEffect(() => {
     loadCachedDevotional();
+    loadReadingProgress();
+    loadVOTD();
+    loadCharacterSpotlight();
   }, []);
 
+  const loadCharacterSpotlight = async () => {
+    try {
+      const preferredVersion = await store.getPreferredBibleVersion();
+      const data = await getWeeklyCharacterSpotlight(preferredVersion);
+      if (data) {
+        setCharacterSpotlight(data as any);
+      }
+    } catch (error) {
+      console.error('Failed to load character spotlight:', error);
+    }
+  };
+
+  const loadVOTD = async () => {
+    try {
+      const data = await getOrGenerateVOTD();
+      if (data) {
+        // Clean the text from any existing quotation marks to avoid duplicates in UI
+        const cleanText = data.text ? data.text.replace(/^["']|["']$/g, '').trim() : '';
+
+        setVotd({
+          text: cleanText,
+          ref: data.reference,
+          version: data.version || 'NKJV',
+          reflection: data.reflection,
+          challenge: data.challenge
+        });
+      }
+    } catch (error) {
+      console.error('Failed to load VOTD:', error);
+      // Fallback already set by default state
+    }
+  };
+
+  const loadReadingProgress = async () => {
+    const progress = await store.getCachedData('bible_year_progress') || [];
+    setReadingProgress(progress);
+  };
+
   useEffect(() => {
+    const loadingMessages = [
+      'Opening the Word...',
+      'Gathering scripture...',
+      'Preparing your daily bread...',
+      'Consulting the theologians...',
+      'Shining light on the text...'
+    ];
+
     if (loading) {
       let index = 0;
       const interval = setInterval(() => {
@@ -243,20 +260,17 @@ export default function DailyDevotionalScreen(): JSX.Element {
       'How would you like to share this verse?',
       [
         {
-          text: 'Share as Text',
-          onPress: async () => {
-            try {
-              await Share.share({
-                message: `"${verse}"\n\n— ${ref} (${version})\n\nShared via Bible Devotional AI`,
-              });
-            } catch (error) {
-              console.error('Error sharing text:', error);
-            }
-          },
+          text: 'Text Copy',
+          onPress: () => {
+            const message = `"${verse}" - ${ref} (${version})\n\nShared from Bible Devotional AI`;
+            Share.share({ message });
+          }
         },
         {
-          text: 'Share as Image',
-          onPress: () => setShareModalVisible(true),
+          text: 'Social Image',
+          onPress: () => {
+             setShareModalVisible(true);
+          }
         },
         {
           text: 'Cancel',
@@ -309,164 +323,253 @@ export default function DailyDevotionalScreen(): JSX.Element {
     );
   }
 
+  const getProgressStats = () => {
+    if (!readingProgress || !Array.isArray(readingProgress)) return { total: 0, percent: 0 };
+    const daysCompleted = readingProgress.length;
+    const percent = Math.round((daysCompleted / 365) * 100);
+    return { total: daysCompleted, percent };
+  };
+
+  const stats = getProgressStats();
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Date Header */}
-        <View style={styles.dateHeader}>
-          <Text style={styles.dateText}>
-            {new Date().toLocaleDateString('en-US', {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-            })}
-          </Text>
-          <Text style={styles.dateSubtext}>Your Daily Bread</Text>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.greeting}>Daily Devotional</Text>
+              <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</Text>
+            </View>
+            
+          </View>
+
+          {/* Journey Dashboard */}
+          <TouchableOpacity
+            style={styles.journeyCard}
+            onPress={() => router.push('/bible-in-one-year')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.journeyInfo}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.journeyTitle}>Bible in One Year</Text>
+                <Ionicons name="chevron-forward" size={14} color={COLORS.gold} style={{ marginLeft: 4 }} />
+              </View>
+              <Text style={styles.journeyProgress}>{stats.total} of 365 Days Finished</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${Math.max(stats.percent, 5)}%` }]} />
+              <Text style={styles.progressPercent}>{stats.percent}%</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* Devotional Card */}
-        {devotional && (
-          <View style={styles.cardWrapper}>
-            <TouchableOpacity
-              style={[styles.devotionalCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}
-              onPress={() => {
-                store.storeDevotional(devotional);
-                router.push(`/devotional/${devotional.id}`);
-              }}
-              activeOpacity={0.95}
-            >
-              <View style={styles.goldAccent} />
-              <View style={styles.cardContent}>
-                <Text style={[styles.topicTitle, { color: isDarkMode ? colors.gold : colors.primary }]}>{devotional.topic}</Text>
+        <View style={styles.contentContainer}>
+          {/* Date Header */}
+          <View style={styles.dateHeader}>
+            <Text style={styles.dateTextLabel}>
+              {new Date().toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </Text>
+            <Text style={styles.dateSubtext}>Your Daily Bread</Text>
+          </View>
 
-                {devotional.keyVerse && (
-                  <View style={[styles.verseContainer, { backgroundColor: isDarkMode ? colors.primaryDark : colors.offWhite }]}>
-                    <Ionicons name="bookmark" size={20} color={COLORS.gold} style={styles.verseIcon} />
-                    <View style={styles.verseTextContainer}>
-                      <View style={styles.verseRefRow}>
-                        <Text style={[styles.verseReference, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{devotional.keyVerse.reference}</Text>
-                        <Text style={styles.versionTag}>{devotional.bibleVersion || 'NKJV'}</Text>
+          {/* Devotional Card */}
+          {devotional && (
+            <View style={styles.cardWrapper}>
+              <TouchableOpacity
+                style={[styles.devotionalCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}
+                onPress={() => {
+                  store.storeDevotional(devotional);
+                  router.push(`/devotional/${devotional.id}`);
+                }}
+                activeOpacity={0.95}
+              >
+                <View style={styles.goldAccent} />
+                <View style={styles.cardContent}>
+                  <Text style={[styles.topicTitle, { color: isDarkMode ? colors.gold : colors.primary }]}>{devotional.topic}</Text>
+
+                  {devotional.keyVerse && (
+                    <View style={[styles.verseContainer, { backgroundColor: isDarkMode ? colors.primaryDark : colors.offWhite }]}>
+                      <Ionicons name="bookmark" size={20} color={COLORS.gold} style={styles.verseIcon} />
+                      <View style={styles.verseTextContainer}>
+                        <View style={styles.verseRefRow}>
+                          <Text style={[styles.verseReference, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{devotional.keyVerse.reference}</Text>
+                          <Text style={styles.versionTag}>{devotional.bibleVersion || 'NKJV'}</Text>
+                        </View>
+                        <Text style={[styles.verseText, { color: colors.text }]}>"{devotional.keyVerse.text}"</Text>
                       </View>
-                      <Text style={[styles.verseText, { color: colors.text }]}>"{devotional.keyVerse.text}"</Text>
                     </View>
+                  )}
+
+                  <Text style={[styles.previewText, { color: colors.text }]} numberOfLines={6}>
+                    {devotional.content}
+                  </Text>
+
+                  <View style={[styles.readMoreContainer, { borderTopColor: colors.offWhite }]}>
+                    <Text style={styles.readMoreText}>Read Full Devotional</Text>
+                    <Ionicons name="arrow-forward" size={16} color={COLORS.gold} />
                   </View>
-                )}
-
-                <Text style={[styles.previewText, { color: colors.text }]} numberOfLines={6}>
-                  {devotional.content}
-                </Text>
-
-                <View style={[styles.readMoreContainer, { borderTopColor: colors.offWhite }]}>
-                  <Text style={styles.readMoreText}>Read Full Devotional</Text>
-                  <Ionicons name="arrow-forward" size={16} color={COLORS.gold} />
                 </View>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Quick Actions */}
+          <View style={styles.quickActions}>
+            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/search')}>
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="search" size={24} color={COLORS.gold} />
               </View>
+              <Text style={[styles.actionText, { color: colors.text }]}>Search Topic</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/library')}>
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="bookmarks" size={24} color={COLORS.gold} />
+              </View>
+              <Text style={[styles.actionText, { color: colors.text }]}>My Library</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/bible-in-one-year')}>
+              <View style={styles.actionIconContainer}>
+                <Ionicons name="calendar" size={24} color={COLORS.gold} />
+              </View>
+              <Text style={[styles.actionText, { color: colors.text }]}>Yearly Plan</Text>
             </TouchableOpacity>
           </View>
-        )}
 
-        {/* Quick Actions */}
-        <View style={styles.quickActions}>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/search')}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="search" size={24} color={COLORS.gold} />
+          {/* Today's Prayer */}
+          {devotional?.prayer && (
+            <View style={[styles.prayerContainer, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}>
+              <View style={styles.prayerHeader}>
+                <Ionicons name="hand-left" size={20} color={COLORS.gold} />
+                <Text style={styles.prayerTitle}>Today's Prayer</Text>
+              </View>
+              {devotional.prayer.split('\n\n').map((paragraph, index) => (
+                <Text key={index} style={[styles.prayerText, { color: isDarkMode ? colors.text : COLORS.white }]}>
+                  {paragraph.trim()}
+                </Text>
+              ))}
             </View>
-            <Text style={[styles.actionText, { color: colors.text }]}>Search Topic</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/library')}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="bookmarks" size={24} color={COLORS.gold} />
-            </View>
-            <Text style={[styles.actionText, { color: colors.text }]}>My Library</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.surface }]} onPress={() => router.push('/bible-in-one-year')}>
-            <View style={styles.actionIconContainer}>
-              <Ionicons name="calendar" size={24} color={COLORS.gold} />
-            </View>
-            <Text style={[styles.actionText, { color: colors.text }]}>Yearly Plan</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Today's Prayer */}
-        {devotional?.prayer && (
-          <View style={[styles.prayerContainer, { backgroundColor: isDarkMode ? colors.surface : colors.primary }]}>
-            <View style={styles.prayerHeader}>
-              <Ionicons name="hand-left" size={20} color={COLORS.gold} />
-              <Text style={styles.prayerTitle}>Today's Prayer</Text>
-            </View>
-            {devotional.prayer.split('\n\n').map((paragraph, index) => (
-              <Text key={index} style={[styles.prayerText, { color: isDarkMode ? colors.text : COLORS.white }]}>
-                {paragraph.trim()}
-              </Text>
-            ))}
-          </View>
-        )}
-
-        <View style={[styles.dailyCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}>
-          <View style={[styles.dailyBadge, { backgroundColor: isDarkMode ? 'rgba(212, 175, 55, 0.2)' : 'rgba(212, 175, 55, 0.1)' }]}>
-            <Text style={[styles.dailyBadgeText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>VERSE OF THE DAY</Text>
-          </View>
-          <Text style={[styles.dailyVerse, { color: colors.text }]}>
-            "{votd.text}"
-          </Text>
-          <Text style={[styles.dailyRef, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{votd.ref} ({votd.version})</Text>
-          <TouchableOpacity
-            style={[styles.shareButton, { backgroundColor: colors.surface }]}
-            onPress={() => handleShareVerse(votd.text, votd.ref, votd.version)}
-          >
-             <Ionicons name="share-social-outline" size={20} color={COLORS.gold} />
-             <Text style={[styles.shareText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>Share Grace</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Mood Selector - Relocated from Explore */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>How are you feeling?</Text>
-          <View style={styles.moodGrid}>
-            {MOODS.map((mood) => (
-              <TouchableOpacity
-                key={mood.id}
-                style={[
-                  styles.moodButton,
-                  { backgroundColor: colors.surface },
-                  selectedMood?.id === mood.id && { backgroundColor: mood.color }
-                ]}
-                onPress={() => setSelectedMood(mood)}
-              >
-                <Ionicons
-                  name={mood.icon as any}
-                  size={24}
-                  color={selectedMood?.id === mood.id ? COLORS.white : mood.color}
-                />
-                <Text style={[
-                  styles.moodLabel,
-                  { color: colors.textSecondary },
-                  selectedMood?.id === mood.id && { color: COLORS.white }
-                ]}>{mood.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {selectedMood && (
-            <Animated.View style={[styles.moodInspiration, { opacity: fadeAnim, backgroundColor: colors.surface }]}>
-              <Ionicons name="chatbox-ellipses-outline" size={24} color={selectedMood.color} style={styles.quoteIcon} />
-              <Text style={[styles.moodVerse, { color: colors.text }]}>{selectedMood.verse}</Text>
-              <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
-              <TouchableOpacity
-                style={[styles.studyLinkedButton, { borderColor: selectedMood.color }]}
-                onPress={() => router.push({ pathname: '/search', params: { q: `Overcoming ${selectedMood.label} with God's word` } })}
-              >
-                <Text style={[styles.studyLinkedText, { color: selectedMood.color }]}>Deep Dive Study</Text>
-                <Ionicons name="arrow-forward" size={16} color={selectedMood.color} />
-              </TouchableOpacity>
-            </Animated.View>
           )}
+
+          {/* Weekly Character Spotlight */}
+          {characterSpotlight && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>Weekly Spotlight</Text>
+                <View style={styles.newBadge}>
+                  <Text style={styles.newBadgeText}>NEW</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.characterCard, { backgroundColor: colors.surface }]}
+                onPress={() => {
+                  store.storeDevotional(characterSpotlight as any);
+                  router.push(`/devotional/${characterSpotlight.id}`);
+                }}
+                activeOpacity={0.9}
+              >
+                <View style={styles.characterIconContainer}>
+                  <Ionicons name="person" size={32} color={COLORS.gold} />
+                </View>
+                <View style={styles.characterInfo}>
+                  <Text style={[styles.characterName, { color: colors.text }]}>{characterSpotlight.character}</Text>
+                  <Text style={[styles.characterTitle, { color: COLORS.goldDark }]}>{characterSpotlight.topic}</Text>
+                  <Text style={[styles.characterLesson, { color: colors.textSecondary }]} numberOfLines={2}>
+                    {characterSpotlight.application}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={[styles.dailyCard, { backgroundColor: colors.parchment, borderColor: colors.parchmentDark }]}>
+            <View style={[styles.dailyBadge, { backgroundColor: isDarkMode ? 'rgba(212, 175, 55, 0.2)' : 'rgba(212, 175, 55, 0.1)' }]}>
+              <Text style={[styles.dailyBadgeText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>VERSE OF THE DAY</Text>
+            </View>
+            <Text style={[styles.dailyVerse, { color: colors.text }]}>
+              "{votd.text}"
+            </Text>
+            <Text style={[styles.dailyRef, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>{votd.ref} ({votd.version})</Text>
+
+            {votd.reflection && (
+              <View style={styles.votdContent}>
+                <Text style={[styles.votdReflection, { color: colors.text }]}>{votd.reflection}</Text>
+                {votd.challenge && (
+                  <View style={[styles.challengeBox, { backgroundColor: isDarkMode ? 'rgba(212, 175, 55, 0.1)' : 'rgba(212, 175, 55, 0.05)' }]}>
+                    <Text style={[styles.challengeTitle, { color: COLORS.gold }]}>DAILY CHALLENGE</Text>
+                    <Text style={[styles.challengeText, { color: colors.text }]}>{votd.challenge}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[styles.shareActionBtn, { backgroundColor: colors.surface }]}
+              onPress={() => handleShareVerse(votd.text, votd.ref, votd.version)}
+            >
+               <Ionicons name="share-social-outline" size={20} color={COLORS.gold} />
+               <Text style={[styles.shareText, { color: isDarkMode ? colors.gold : COLORS.goldDark }]}>Share Grace</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Mood Selector - Relocated from Explore */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>How are you feeling?</Text>
+            <View style={styles.moodGrid}>
+              {MOODS.map((mood) => (
+                <TouchableOpacity
+                  key={mood.id}
+                  style={[
+                    styles.moodButton,
+                    { backgroundColor: colors.surface },
+                    selectedMood?.id === mood.id && { backgroundColor: mood.color }
+                  ]}
+                  onPress={() => setSelectedMood(mood)}
+                >
+                  <Ionicons
+                    name={mood.icon as any}
+                    size={24}
+                    color={selectedMood?.id === mood.id ? COLORS.white : mood.color}
+                  />
+                  <Text style={[
+                    styles.moodLabel,
+                    { color: colors.textSecondary },
+                    selectedMood?.id === mood.id && { color: COLORS.white }
+                  ]}>{mood.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {selectedMood && (
+              <View style={[styles.moodResult, { backgroundColor: colors.surface }]}>
+                <Ionicons name="chatbox-ellipses" size={40} color={selectedMood.color} style={styles.quoteIcon} />
+                <Text style={[styles.moodVerse, { color: colors.text }]}>"{selectedMood.verse}"</Text>
+                <Text style={[styles.moodRef, { color: selectedMood.color }]}>{selectedMood.ref}</Text>
+
+                <TouchableOpacity
+                  style={[styles.studyLinkedButton, { borderColor: selectedMood.color }]}
+                  onPress={() => {
+                    // Logic to jump to a study or search this topic
+                    router.push(`/search?q=${selectedMood.label}`);
+                  }}
+                >
+                  <Text style={[styles.studyLinkedText, { color: selectedMood.color }]}>Study {selectedMood.label}</Text>
+                  <Ionicons name="arrow-forward" size={14} color={selectedMood.color} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
       </ScrollView>
 
@@ -486,13 +589,9 @@ export default function DailyDevotionalScreen(): JSX.Element {
           )}
           <View style={[
             styles.shareCardBorder,
-            { backgroundColor: selectedTextColor.color === '#FFFFFF' ? 'rgba(255,255,255,0.1)' : 'transparent' }
+            { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
           ]}>
-            <View style={styles.shareCardHeader}>
-              <Text style={[styles.shareCardBadge, { color: selectedTextColor.color, borderColor: selectedTextColor.color }]}>
-                VERSE OF THE DAY
-              </Text>
-            </View>
+            <Ionicons name="chatbox-ellipses" size={60} color={isLightBg ? 'rgba(0,0,0,0.1)' : 'rgba(212, 175, 55, 0.3)'} style={styles.quoteIconBig} />
 
             <View style={styles.shareCardBody}>
               <Text style={[
@@ -503,7 +602,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
                   fontStyle: (selectedFont as any).style || 'normal'
                 }
               ]}>
-                "{votd.text}"
+                {votd.text}
               </Text>
 
               <View style={[styles.shareCardDivider, { backgroundColor: selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color }]} />
@@ -517,8 +616,8 @@ export default function DailyDevotionalScreen(): JSX.Element {
             </View>
 
             <View style={styles.shareCardFooter}>
-              <Ionicons name="sparkles" size={24} color={selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color} />
-              <Text style={[styles.shareCardAppName, { color: selectedTextColor.color, opacity: 0.7 }]}>BIBLE DEVOTIONAL AI</Text>
+              <Ionicons name="sparkles" size={24} color={COLORS.gold} />
+              <Text style={[styles.shareCardAppName, { color: isLightBg ? 'rgba(0,0,0,0.3)' : 'rgba(212, 175, 55, 0.7)' }]}>BIBLE DEVOTIONAL AI</Text>
             </View>
           </View>
         </View>
@@ -532,17 +631,17 @@ export default function DailyDevotionalScreen(): JSX.Element {
         onRequestClose={() => setShareModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { height: '80%' }]}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Share Verse Image</Text>
+          <View style={[styles.modalContent, { height: '80%', backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.offWhite }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Share Verse Image</Text>
               <TouchableOpacity onPress={() => setShareModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.primary} />
+                <Ionicons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.sharePreviewContainer}>
-                <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : COLORS.primary }]}>
+                <View style={[styles.sharePreviewCard, { backgroundColor: selectedBackground.type === 'color' ? selectedBackground.color : colors.primary }]}>
                   {selectedBackground.type === 'image' && (
                     <Image
                       source={{ uri: selectedBackground.url }}
@@ -552,11 +651,8 @@ export default function DailyDevotionalScreen(): JSX.Element {
                   )}
                   <View style={[
                     styles.sharePreviewCardBorder,
-                    { backgroundColor: selectedTextColor.color === '#FFFFFF' ? 'rgba(255,255,255,0.1)' : 'transparent' }
+                    { backgroundColor: isLightBg ? 'rgba(255,255,255,0.2)' : 'transparent' }
                   ]}>
-                    <Text style={[styles.sharePreviewBadge, { color: selectedTextColor.color, borderColor: selectedTextColor.color }]}>
-                      VERSE OF THE DAY
-                    </Text>
                     <Text
                       style={[
                         styles.sharePreviewText,
@@ -568,16 +664,16 @@ export default function DailyDevotionalScreen(): JSX.Element {
                       ]}
                       numberOfLines={6}
                     >
-                      "{votd.text}"
+                      {votd.text}
                     </Text>
                     <Text style={[styles.sharePreviewRef, { color: selectedTextColor.color === '#FFFFFF' ? COLORS.gold : selectedTextColor.color }]}>
-                      {votd.ref}
+                      {votd.ref} ({votd.version})
                     </Text>
                   </View>
                 </View>
               </View>
 
-              <Text style={styles.sectionLabel}>Select Background</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Background</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -600,12 +696,12 @@ export default function DailyDevotionalScreen(): JSX.Element {
                     ) : (
                       <View style={[styles.bgOptionThumb, { backgroundColor: bg.color }]} />
                     )}
-                    <Text style={styles.bgOptionLabel}>{bg.label}</Text>
+                    <Text style={[styles.bgOptionLabel, { color: colors.textSecondary }]}>{bg.label}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Font</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Font</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -616,7 +712,8 @@ export default function DailyDevotionalScreen(): JSX.Element {
                     key={font.id}
                     style={[
                       styles.fontOptionCard,
-                      selectedFont.id === font.id && styles.fontOptionCardActive
+                      { backgroundColor: colors.offWhite },
+                      selectedFont.id === font.id && [styles.fontOptionCardActive, { backgroundColor: isDarkMode ? colors.gold : colors.primary }]
                     ]}
                     onPress={() => {
                       Haptics.selectionAsync();
@@ -625,7 +722,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
                   >
                     <Text style={[
                       styles.fontOptionLabel,
-                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal' },
+                      { fontFamily: font.family, fontStyle: (font as any).style || 'normal', color: colors.text },
                       selectedFont.id === font.id && styles.fontOptionLabelActive
                     ]}>
                       {font.label}
@@ -634,7 +731,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
                 ))}
               </ScrollView>
 
-              <Text style={styles.sectionLabel}>Select Text Color</Text>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>Select Text Color</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -647,13 +744,10 @@ export default function DailyDevotionalScreen(): JSX.Element {
                       styles.colorOptionCard,
                       selectedTextColor.id === color.id && styles.colorOptionCardActive
                     ]}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setSelectedTextColor(color);
-                    }}
+                    onPress={() => setSelectedTextColor(color)}
                   >
                     <View style={[styles.colorOptionThumb, { backgroundColor: color.color }]} />
-                    <Text style={styles.colorOptionLabel}>{color.label}</Text>
+                    <Text style={[styles.colorOptionLabel, { color: colors.textSecondary }]}>{color.label}</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -685,361 +779,391 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.offWhite,
   },
-  contentContainer: {
-    paddingBottom: SPACING.xxl,
+  scrollContent: {
+    paddingBottom: 40,
   },
-  
-  // Loading State
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  header: {
     backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    ...SHADOWS.medium,
   },
-  loadingContent: {
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 20,
   },
-  spinner: {
-    marginVertical: SPACING.lg,
-  },
-  loadingText: {
-    fontSize: FONTS.ui.size.large,
-    color: COLORS.gold,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  loadingSubtext: {
-    fontSize: FONTS.ui.size.small,
-    color: COLORS.grayLight,
-    marginTop: SPACING.sm,
-  },
-  
-  // Date Header
-  dateHeader: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: SPACING.xl,
-    paddingHorizontal: SPACING.lg,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    alignItems: 'center',
+  greeting: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: COLORS.white,
   },
   dateText: {
-    fontSize: FONTS.ui.size.large,
+    fontSize: 14,
+    color: COLORS.grayLight,
+    marginTop: 4,
+  },
+  profileButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // Journey Dashboard Styles
+  journeyCard: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  journeyInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 12,
+  },
+  journeyTitle: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  journeyProgress: {
     color: COLORS.gold,
+    fontSize: 12,
     fontWeight: '600',
-    textAlign: 'center',
+  },
+  progressTrack: {
+    height: 12,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  progressFill: {
+    height: 8,
+    backgroundColor: COLORS.gold,
+    borderRadius: 4,
+  },
+  progressPercent: {
+    position: 'absolute',
+    right: 10,
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.white,
+  },
+
+  contentContainer: {
+    paddingHorizontal: 20,
+    marginTop: -10,
+  },
+  dateHeader: {
+    marginTop: 30,
+    marginBottom: 15,
+  },
+  dateTextLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.goldDark,
+    letterSpacing: 1,
   },
   dateSubtext: {
-    fontSize: FONTS.ui.size.small,
-    color: COLORS.grayLight,
-    marginTop: SPACING.xs,
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.primary,
+    marginTop: 4,
   },
-  
-  // Devotional Card
   cardWrapper: {
-    marginHorizontal: isTablet ? sideMargin : SPACING.md,
-    marginTop: -30,
-    alignSelf: 'center',
-    width: isTablet ? contentWidth : '92%',
+    ...SHADOWS.medium,
+    marginBottom: 20,
   },
   devotionalCard: {
-    backgroundColor: COLORS.parchment,
     borderRadius: 20,
-    ...SHADOWS.large,
-    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: COLORS.parchmentDark,
+    overflow: 'hidden',
   },
   goldAccent: {
-    height: 4,
+    height: 6,
     backgroundColor: COLORS.gold,
-    width: '100%',
   },
   cardContent: {
-    padding: SPACING.lg,
+    padding: 20,
   },
   topicTitle: {
-    fontSize: FONTS.ui.size.xlarge,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: COLORS.primary,
-    marginBottom: SPACING.md,
-    textAlign: 'center',
+    marginBottom: 15,
   },
-  
-  // Key Verse
   verseContainer: {
     flexDirection: 'row',
-    backgroundColor: COLORS.offWhite,
-    borderRadius: 10,
-    padding: SPACING.md,
-    marginBottom: SPACING.md,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.gold,
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 15,
   },
   verseIcon: {
-    marginRight: SPACING.sm,
+    marginRight: 12,
     marginTop: 2,
   },
   verseTextContainer: {
     flex: 1,
   },
-  verseReference: {
-    fontSize: FONTS.ui.size.small,
-    fontWeight: '700',
-    color: COLORS.goldDark,
-  },
   verseRefRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.xs,
-    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    marginBottom: 4,
+  },
+  verseReference: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginRight: 8,
   },
   versionTag: {
     fontSize: 10,
-    fontWeight: '700',
     color: COLORS.gold,
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginTop: 2,
+    fontWeight: '800',
   },
   verseText: {
-    fontSize: FONTS.scripture.size.medium,
-    fontFamily: FONTS.scripture.regular,
-    color: COLORS.primary,
+    fontSize: 15,
     fontStyle: 'italic',
-    lineHeight: 24,
-  },
-  
-  // Preview
-  previewText: {
-    fontSize: FONTS.ui.size.medium,
-    color: COLORS.grayDark,
     lineHeight: 22,
-    marginBottom: SPACING.md,
   },
-  
-  // Read More
+  previewText: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 20,
+  },
   readMoreContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    paddingTop: 15,
     borderTopWidth: 1,
-    borderTopColor: COLORS.offWhite,
-    paddingTop: SPACING.md,
   },
   readMoreText: {
-    fontSize: FONTS.ui.size.small,
-    color: COLORS.gold,
-    fontWeight: '600',
-    marginRight: SPACING.xs,
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.goldDark,
   },
   
-  // Quick Actions
   quickActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: SPACING.xl,
-    marginHorizontal: isTablet ? sideMargin : SPACING.md,
-    alignSelf: 'center',
-    width: isTablet ? contentWidth : '92%',
+    marginBottom: 30,
   },
   actionButton: {
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.sm,
+    width: '31%',
+    padding: 15,
     borderRadius: 16,
+    alignItems: 'center',
     ...SHADOWS.small,
-    flex: 1,
-    marginHorizontal: 4,
-    minHeight: 90,
-    justifyContent: 'center',
   },
   actionIconContainer: {
-    marginBottom: SPACING.xs,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   actionText: {
-    fontSize: FONTS.ui.size.tiny,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  
-  // Version Selector
-  versionSelector: {
-    marginTop: SPACING.lg,
-    paddingHorizontal: SPACING.md,
-  },
-  versionTitle: {
-    fontSize: FONTS.ui.size.small,
-    color: COLORS.gray,
-    marginBottom: SPACING.sm,
-    fontWeight: '600',
-  },
-  versionScrollContent: {
-    paddingRight: SPACING.md,
-  },
-  versionChip: {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderRadius: 20,
-    backgroundColor: COLORS.white,
-    marginRight: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.grayLight,
-  },
-  selectedVersionChip: {
-    backgroundColor: COLORS.gold,
-    borderColor: COLORS.gold,
-  },
-  versionChipText: {
-    fontSize: FONTS.ui.size.small,
-    color: COLORS.grayDark,
-    fontWeight: '500',
-  },
-  selectedVersionChipText: {
-    color: COLORS.white,
+    fontSize: 12,
     fontWeight: '700',
   },
-  
-  // Prayer
+
   prayerContainer: {
-    marginHorizontal: isTablet ? sideMargin : SPACING.md,
-    marginTop: SPACING.lg,
-    backgroundColor: COLORS.primary,
-    borderRadius: 15,
-    padding: SPACING.lg,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.gold,
-    alignSelf: 'center',
-    width: isTablet ? contentWidth : '92%',
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 30,
+    ...SHADOWS.medium,
   },
   prayerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.sm,
+    marginBottom: 15,
   },
   prayerTitle: {
-    fontSize: FONTS.ui.size.medium,
+    fontSize: 18,
+    fontWeight: '800',
     color: COLORS.gold,
-    fontWeight: '600',
-    marginLeft: SPACING.sm,
+    marginLeft: 10,
   },
   prayerText: {
-    fontSize: FONTS.ui.size.medium,
-    color: COLORS.white,
+    fontSize: 16,
     fontStyle: 'italic',
-    lineHeight: 22,
-    marginBottom: SPACING.sm,
+    lineHeight: 26,
+    textAlign: 'center',
+    marginBottom: 10,
   },
 
-  // Verse of the Day
   dailyCard: {
-    marginTop: SPACING.xl,
-    marginHorizontal: isTablet ? sideMargin : SPACING.md,
-    backgroundColor: COLORS.parchment,
-    borderRadius: 20,
-    padding: SPACING.xl,
-    alignItems: 'center',
-    ...SHADOWS.medium,
+    padding: 24,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: COLORS.parchmentDark,
-    alignSelf: 'center',
-    width: isTablet ? contentWidth : '92%',
+    alignItems: 'center',
+    marginBottom: 30,
+    ...SHADOWS.small,
   },
   dailyBadge: {
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 20,
-    marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.gold,
+    borderRadius: 8,
+    marginBottom: 15,
   },
   dailyBadgeText: {
-    color: COLORS.goldDark,
     fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 2,
   },
   dailyVerse: {
     fontSize: 20,
-    fontFamily: 'serif',
-    color: COLORS.primary,
     textAlign: 'center',
     fontStyle: 'italic',
     lineHeight: 30,
+    fontFamily: 'serif',
+    marginBottom: 15,
   },
   dailyRef: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.goldDark,
-    marginTop: SPACING.md,
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 20,
   },
-  shareButton: {
+  votdContent: {
+    width: '100%',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  votdReflection: {
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginBottom: 15,
+    paddingHorizontal: 10,
+  },
+  challengeBox: {
+    width: '100%',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.2)',
+  },
+  challengeTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  challengeText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  shareActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: SPACING.lg,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: COLORS.white,
-    ...SHADOWS.small,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
   },
   shareText: {
-    marginLeft: 8,
     fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.goldDark,
+    fontWeight: '700',
+    marginLeft: 8,
   },
 
-  // Mood Section
   section: {
-    marginTop: SPACING.xl,
-    paddingHorizontal: isTablet ? sideMargin : SPACING.md,
-    alignSelf: 'center',
-    width: '100%',
+    marginBottom: 30,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 15,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    gap: 8,
+  },
+  newBadge: {
+    backgroundColor: COLORS.gold,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  newBadgeText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  characterCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 20,
+    ...SHADOWS.small,
+  },
+  characterIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  characterInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  characterName: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  characterTitle: {
+    fontSize: 13,
     fontWeight: '700',
-    color: COLORS.primary,
-    marginBottom: SPACING.md,
-    textAlign: isTablet ? 'center' : 'left',
+    marginTop: 2,
+  },
+  characterLesson: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 18,
   },
   moodGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: isTablet ? contentWidth : '100%',
-    alignSelf: 'center',
   },
   moodButton: {
-    width: isTablet ? (contentWidth - 64) / 4 : (width - 64) / 4,
+    width: '23%',
     aspectRatio: 1,
-    backgroundColor: COLORS.white,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     ...SHADOWS.small,
   },
   moodLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 4,
-    color: COLORS.grayDark,
+    marginTop: 6,
   },
-  moodInspiration: {
+  moodResult: {
     marginTop: SPACING.md,
-    backgroundColor: COLORS.white,
     padding: SPACING.lg,
     borderRadius: 16,
     ...SHADOWS.small,
     alignItems: 'center',
-    width: isTablet ? contentWidth : '100%',
-    alignSelf: 'center',
   },
   quoteIcon: {
     marginBottom: 8,
@@ -1047,7 +1171,6 @@ const styles = StyleSheet.create({
   },
   moodVerse: {
     fontSize: 18,
-    color: COLORS.primary,
     textAlign: 'center',
     fontStyle: 'italic',
     lineHeight: 26,
@@ -1071,90 +1194,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginRight: 4,
   },
-  // Share Card Styles
-  shareCardContainer: {
-    position: 'absolute',
-    left: -3000,
-    width: 1080,
-  },
-  shareCard: {
-    backgroundColor: COLORS.primary,
-    padding: 40,
-    width: 1080,
-    height: 1350, // 4:5 aspect ratio
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  shareCardBorder: {
-    flex: 1,
-    width: '100%',
-    borderWidth: 2,
-    borderColor: 'rgba(212, 175, 55, 0.5)',
-    borderRadius: 20,
-    padding: 60,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  shareCardHeader: {
-    alignItems: 'center',
-  },
-  shareCardBadge: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: 6,
-    paddingHorizontal: 30,
-    paddingVertical: 10,
-    borderWidth: 2,
-    borderRadius: 10,
-  },
-  shareCardBody: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingVertical: 40,
-  },
-  shareCardText: {
-    fontSize: 58,
-    textAlign: 'center',
-    lineHeight: 88,
-    marginBottom: 40,
-  },
-  shareCardDivider: {
-    width: 150,
-    height: 4,
-    marginVertical: 40,
-    borderRadius: 2,
-  },
-  shareCardReference: {
-    fontSize: 48,
-    fontWeight: '800',
-    letterSpacing: 2,
-    textAlign: 'center',
-  },
-  shareCardVersion: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginTop: 10,
-    letterSpacing: 4,
-  },
-  shareCardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  shareCardAppName: {
-    fontSize: 24,
-    fontWeight: '800',
-    marginLeft: 15,
-    letterSpacing: 6,
-  },
-  // Modal Styles
+
+  // Share Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 20,
@@ -1171,7 +1218,6 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: COLORS.primary,
   },
   sharePreviewContainer: {
     alignItems: 'center',
@@ -1194,31 +1240,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sharePreviewBadge: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 15,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderRadius: 4,
-  },
   sharePreviewText: {
     fontSize: 14,
     textAlign: 'center',
+    fontStyle: 'italic',
     lineHeight: 20,
+    fontFamily: 'serif',
   },
   sharePreviewRef: {
     fontSize: 12,
     fontWeight: 'bold',
-    marginTop: 15,
+    marginTop: 10,
     letterSpacing: 1,
   },
   sectionLabel: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: COLORS.primary,
     marginBottom: 12,
   },
   bgOptionsScroll: {
@@ -1242,14 +1279,12 @@ const styles = StyleSheet.create({
   },
   bgOptionLabel: {
     fontSize: 11,
-    color: COLORS.grayDark,
     fontWeight: '500',
   },
   fontOptionCard: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: COLORS.offWhite,
     marginRight: 10,
     borderWidth: 1,
     borderColor: '#eee',
@@ -1258,12 +1293,10 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   fontOptionCardActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+    borderColor: COLORS.gold,
   },
   fontOptionLabel: {
     fontSize: 14,
-    color: COLORS.primary,
   },
   fontOptionLabelActive: {
     color: COLORS.white,
@@ -1287,7 +1320,6 @@ const styles = StyleSheet.create({
   },
   colorOptionLabel: {
     fontSize: 10,
-    color: COLORS.grayDark,
   },
   confirmShareButton: {
     backgroundColor: COLORS.primary,
@@ -1304,5 +1336,101 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 10,
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+  },
+  loadingContent: {
+    alignItems: 'center',
+  },
+  spinner: {
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  loadingText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+
+  // Share Card Styles (Hidden)
+  shareCardContainer: {
+    position: 'absolute',
+    left: -3000,
+    width: 1080,
+  },
+  shareCard: {
+    backgroundColor: COLORS.primary,
+    padding: 40,
+    width: 1080,
+    height: 1350,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareCardBorder: {
+    flex: 1,
+    width: '100%',
+    borderWidth: 2,
+    borderColor: 'rgba(212, 175, 55, 0.5)',
+    borderRadius: 20,
+    padding: 80,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.primary,
+  },
+  quoteIconBig: {
+    marginBottom: 20,
+  },
+  shareCardBody: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  shareCardText: {
+    color: COLORS.white,
+    fontSize: 52,
+    fontFamily: 'serif',
+    fontStyle: 'italic',
+    lineHeight: 78,
+    textAlign: 'center',
+    marginBottom: 40,
+  },
+  shareCardDivider: {
+    width: 120,
+    height: 3,
+    backgroundColor: COLORS.gold,
+    marginVertical: 40,
+    borderRadius: 2,
+  },
+  shareCardReference: {
+    color: COLORS.gold,
+    fontSize: 48,
+    fontWeight: '800',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  shareCardVersion: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 10,
+    letterSpacing: 4,
+  },
+  shareCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 40,
+  },
+  shareCardAppName: {
+    color: 'rgba(212, 175, 55, 0.7)',
+    fontSize: 24,
+    fontWeight: '800',
+    marginLeft: 15,
+    letterSpacing: 6,
   },
 });

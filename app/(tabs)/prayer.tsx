@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -17,6 +20,9 @@ import { COLORS, FONTS, SHADOWS, SPACING, isTablet } from '../../constants/theme
 import * as store from '../../services/store';
 import notifications, { REMINDER_TYPES } from '../../services/notifications';
 import { useAppTheme } from '../../context/ThemeContext';
+import openaiService from '../../services/openai';
+import ScripturePreviewModal from '../../components/ScripturePreviewModal';
+import { wrapScriptures } from '../../utils/scriptureParser';
 
 interface Prayer {
   id: string;
@@ -30,14 +36,28 @@ export default function PrayerJournalScreen() {
   const [prayers, setPrayers] = useState<Prayer[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [newPrayer, setNewPrayer] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
   const [reminderEnabled, setReminderEnabled] = useState(false);
+
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [selectedPrayer, setSelectedPrayer] = useState<Prayer | null>(null);
+
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewReference, setPreviewReference] = useState<string | null>(null);
+  const [preferredVersion, setPreferredVersion] = useState('NKJV');
   const [reminderTime, setReminderTime] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     loadPrayers();
     loadReminderSettings();
+    loadVersion();
   }, []);
+
+  const loadVersion = async () => {
+    const version = await store.getPreferredBibleVersion();
+    setPreferredVersion(version);
+  };
 
   const loadReminderSettings = async () => {
     const settings = await notifications.getReminderSettings();
@@ -113,6 +133,26 @@ export default function PrayerJournalScreen() {
     setModalVisible(false);
   };
 
+  const inspirePrayer = async () => {
+    if (!newPrayer.trim()) {
+      Alert.alert('Inspiration Needed', 'Please enter a brief concern or topic (e.g. "Peace at work") first.');
+      return;
+    }
+
+    setAiLoading(true);
+    try {
+      const version = await store.getPreferredBibleVersion();
+      const prayer = await openaiService.generatePrayer(newPrayer, version);
+      setNewPrayer(prayer);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Prayer inspiration error:', error);
+      Alert.alert('Error', 'Failed to get prayer inspiration. Please check your connection.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const toggleAnswered = (id: string) => {
     const updated = prayers.map(p =>
       p.id === id ? { ...p, isAnswered: !p.isAnswered } : p
@@ -135,30 +175,49 @@ export default function PrayerJournalScreen() {
   };
 
   const renderItem = ({ item }: { item: Prayer }) => (
-    <View style={[styles.card, { backgroundColor: colors.surface }, item.isAnswered && [styles.answeredCard, { backgroundColor: isDarkMode ? colors.primaryDark : '#F1F8E9' }]]}>
+    <TouchableOpacity
+      style={[styles.card, { backgroundColor: colors.surface }, item.isAnswered && [styles.answeredCard, { backgroundColor: isDarkMode ? colors.primaryDark : '#F1F8E9' }]]}
+      onPress={() => {
+        setSelectedPrayer(item);
+        setDetailVisible(true);
+      }}
+      activeOpacity={0.7}
+    >
       <View style={styles.cardHeader}>
         <Text style={[styles.date, { color: colors.textSecondary }]}>{new Date(item.date).toLocaleDateString()}</Text>
         <TouchableOpacity onPress={() => deletePrayer(item.id)}>
           <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
-      <Text style={[styles.prayerText, { color: colors.text }, item.isAnswered && styles.strikeText]}>
+      <Text
+        style={[styles.prayerText, { color: colors.text }, item.isAnswered && styles.strikeText]}
+        numberOfLines={4}
+        ellipsizeMode="tail"
+      >
         {item.text}
       </Text>
-      <TouchableOpacity
-        style={[styles.answeredButton, item.isAnswered && styles.answeredButtonActive]}
-        onPress={() => toggleAnswered(item.id)}
-      >
-        <Ionicons
-          name={item.isAnswered ? "checkmark-circle" : "radio-button-off"}
-          size={20}
-          color={item.isAnswered ? COLORS.white : COLORS.gold}
-        />
-        <Text style={[styles.answeredButtonText, item.isAnswered && styles.answeredButtonTextActive]}>
-          {item.isAnswered ? 'Answered' : 'Mark as Answered'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+
+      <View style={[styles.cardFooter, { borderTopColor: colors.offWhite }]}>
+        <TouchableOpacity
+          style={[styles.answeredButton, item.isAnswered && styles.answeredButtonActive]}
+          onPress={() => toggleAnswered(item.id)}
+        >
+          <Ionicons
+            name={item.isAnswered ? "checkmark-circle" : "radio-button-off"}
+            size={20}
+            color={item.isAnswered ? COLORS.white : COLORS.gold}
+          />
+          <Text style={[styles.answeredButtonText, item.isAnswered && styles.answeredButtonTextActive]}>
+            {item.isAnswered ? 'Answered' : 'Answered?'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.viewDetailsRow}>
+          <Text style={styles.viewDetailsText}>View Details</Text>
+          <Ionicons name="chevron-forward" size={14} color={COLORS.gold} />
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -221,6 +280,57 @@ export default function PrayerJournalScreen() {
         <Ionicons name="add" size={30} color={isDarkMode ? colors.primary : COLORS.white} />
       </TouchableOpacity>
 
+      <ScripturePreviewModal
+        visible={previewVisible}
+        reference={previewReference}
+        onClose={() => setPreviewVisible(false)}
+        bibleVersion={preferredVersion}
+      />
+
+      {/* Prayer Detail Modal */}
+      <Modal
+        visible={detailVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setDetailVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, maxHeight: '80%' }]}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                {selectedPrayer ? new Date(selectedPrayer.date).toLocaleDateString() : 'Prayer'}
+              </Text>
+              <TouchableOpacity onPress={() => setDetailVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.fullPrayerText, { color: colors.text }]}>
+                {selectedPrayer ? wrapScriptures(selectedPrayer.text).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                  if (part.startsWith('[[') && part.endsWith(']]')) {
+                    const ref = part.slice(2, -2);
+                    return (
+                      <Text
+                        key={i}
+                        style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                        onPress={() => {
+                          setPreviewReference(ref);
+                          setPreviewVisible(true);
+                          Haptics.selectionAsync();
+                        }}
+                      >
+                        {ref}
+                      </Text>
+                    );
+                  }
+                  return part;
+                }) : ''}
+              </Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -228,10 +338,26 @@ export default function PrayerJournalScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>New Prayer Request</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>New Prayer Request</Text>
+              <TouchableOpacity
+                style={[styles.inspireButton, aiLoading && styles.inspireButtonDisabled]}
+                onPress={inspirePrayer}
+                disabled={aiLoading}
+              >
+                {aiLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.gold} />
+                ) : (
+                  <>
+                    <Ionicons name="sparkles" size={16} color={COLORS.gold} />
+                    <Text style={styles.inspireText}>Inspire</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
             <TextInput
               style={[styles.input, { backgroundColor: colors.offWhite, color: colors.text, borderColor: colors.offWhite }]}
-              placeholder="What are you praying for?"
+              placeholder="What are you praying for? (e.g. 'Patience for my family')"
               placeholderTextColor={colors.textSecondary}
               multiline
               value={newPrayer}
@@ -363,6 +489,26 @@ const styles = StyleSheet.create({
   answeredButtonTextActive: {
     color: COLORS.white,
   },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  viewDetailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  viewDetailsText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.goldDark,
+    marginRight: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
   fab: {
     position: 'absolute',
     bottom: 24,
@@ -407,7 +553,31 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.primary,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  inspireButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+  },
+  inspireButtonDisabled: {
+    opacity: 0.5,
+  },
+  inspireText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: COLORS.goldDark,
+    marginLeft: 4,
   },
   input: {
     height: 120,
@@ -418,6 +588,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlignVertical: 'top',
     backgroundColor: '#fafafa',
+  },
+  fullPrayerText: {
+    fontSize: 18,
+    lineHeight: 28,
+    fontStyle: 'italic',
+    paddingBottom: 20,
   },
   modalButtons: {
     flexDirection: 'row',

@@ -21,8 +21,13 @@
         "RECEIVE_BOOT_COMPLETED",
         "SCHEDULE_EXACT_ALARM",
         "NOTIFICATIONS"
-      ]
-      // 👆 REMOVED the intentFilters section entirely
+      ],
+      "blockedPermissions": [
+    "READ_MEDIA_IMAGES",
+    "READ_MEDIA_VIDEO",
+    "READ_MEDIA_VISUAL_USER_SELECTED",
+    "CAMERA"
+  ]
     },
     "plugins": [
       [

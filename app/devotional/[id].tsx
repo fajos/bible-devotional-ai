@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
+import * as Speech from 'expo-speech';
 import React, { JSX, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -57,6 +58,11 @@ interface Devotional {
   bibleVersion?: string;
   verses: VerseItem[];
   type?: string;
+  character?: string;
+  biblicalNarrative?: string;
+  strengthsAndVirtues?: string[];
+  failuresAndLessons?: string[];
+  christConnection?: string;
 }
 
 interface StudyKeyVerse {
@@ -143,6 +149,9 @@ export default function DevotionalDetailScreen(): JSX.Element {
 
     const [isSavingImage, setIsSavingImage] = useState<boolean>(false);
 
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const isSpeakingRef = useRef<boolean>(false);
+
     const [previewVisible, setPreviewVisible] = useState(false);
     const [previewReference, setPreviewReference] = useState<string | null>(null);
 
@@ -197,6 +206,9 @@ const isStudyData = (data: DevotionalSource): data is StudyData => {
 };
 
 const resolveDevotional = (data: DevotionalSource): Devotional => {
+  if (data.type === 'character_spotlight') {
+    return data as any as Devotional;
+  }
   return isStudyData(data) ? adaptStudyToDevotional(data) : data;
 };
 
@@ -389,6 +401,102 @@ const loadDevotional = async (): Promise<void> => {
     }
   };
 
+  const stopSpeech = async () => {
+    isSpeakingRef.current = false;
+    setIsSpeaking(false);
+    try {
+      await Speech.stop();
+    } catch (e) {
+      console.log('Stop error:', e);
+    }
+  };
+
+  const toggleSpeech = async () => {
+    if (isSpeaking || isSpeakingRef.current) {
+      await stopSpeech();
+      return;
+    }
+
+    if (!devotional) return;
+
+    // 1. Prepare parts to read
+    const textParts = [];
+    if (devotional.topic) textParts.push(devotional.topic);
+    if (devotional.character) textParts.push(`Bible Character Spotlight: ${devotional.character}`);
+    if (devotional.keyVerse?.reference) textParts.push(`Key Verse: ${devotional.keyVerse.reference}`);
+    if (devotional.keyVerse?.text) textParts.push(devotional.keyVerse.text);
+    if (devotional.biblicalNarrative) textParts.push(`Biblical Narrative: ${devotional.biblicalNarrative}`);
+    if (devotional.strengthsAndVirtues && devotional.strengthsAndVirtues.length > 0) {
+      textParts.push("Strengths and Virtues:");
+      devotional.strengthsAndVirtues.forEach(s => textParts.push(s));
+    }
+    if (devotional.failuresAndLessons && devotional.failuresAndLessons.length > 0) {
+      textParts.push("Failures and Lessons:");
+      devotional.failuresAndLessons.forEach(l => textParts.push(l));
+    }
+    if (devotional.christConnection) textParts.push(`Christ Connection: ${devotional.christConnection}`);
+    if (devotional.content) textParts.push(devotional.content);
+    if (devotional.historicalContext) textParts.push(`Historical Context: ${devotional.historicalContext}`);
+    if (devotional.theologicalInsight) textParts.push(`Theological Insight: ${devotional.theologicalInsight}`);
+    if (devotional.application) textParts.push(`Life Application: ${devotional.application}`);
+    if (devotional.prayer) textParts.push(`Prayer: ${devotional.prayer}`);
+
+    if (textParts.length === 0) return;
+
+    // 2. Setup
+    setIsSpeaking(true);
+    isSpeakingRef.current = true;
+    await Speech.stop();
+
+    try {
+      const prefs = await store.getAudioPreferences();
+      const voiceId = prefs?.voiceIdentifier;
+      const rate = prefs?.rate || 0.9;
+
+      // 3. Narration Loop
+      for (const part of textParts) {
+        if (!isSpeakingRef.current) break;
+
+        // Clean text of markdown/custom brackets
+        const cleanText = part
+          .replace(/\[\[|\]\]/g, '')
+          .replace(/\*\*|\*|_|#/g, '')
+          .trim();
+
+        if (!cleanText) continue;
+
+        await new Promise((resolve) => {
+          Speech.speak(cleanText, {
+            voice: voiceId,
+            rate: rate,
+            onDone: () => resolve(true),
+            onStopped: () => {
+              isSpeakingRef.current = false;
+              resolve(false);
+            },
+            onError: (err) => {
+              console.error('Speech part error:', err);
+              resolve(false);
+            }
+          });
+        });
+
+        if (!isSpeakingRef.current) break;
+      }
+    } catch (error) {
+      console.error('TTS Detail Error:', error);
+    } finally {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      Speech.stop();
+    };
+  }, []);
+
   if (loading) {
   return (
     <View style={styles.loadingContainer}>
@@ -424,14 +532,17 @@ return (
           <Ionicons name="arrow-back" size={24} color={COLORS.gold} />
         </TouchableOpacity>
 
+        {devotional.type === 'character_spotlight' && (
+          <Text style={styles.headerSubtitle}>Weekly Character Spotlight</Text>
+        )}
         <Text style={styles.headerTitle}>
-          {devotional.topic || 'Devotional'}
+          {devotional.character || devotional.topic || 'Devotional'}
         </Text>
         <View style={styles.headerMeta}>
           <View style={styles.versionBadge}>
             <Ionicons name="book" size={14} color={COLORS.gold} />
             <Text style={styles.versionText}>
-              {devotional.bibleVersion || devotional.type || 'Study'}
+              {devotional.type === 'character_spotlight' ? devotional.topic : (devotional.bibleVersion || devotional.type || 'Study')}
             </Text>
           </View>
         </View>
@@ -451,6 +562,20 @@ return (
         />
         <Text style={[styles.actionButtonText, isSaved && styles.actionButtonTextActive]}>
           {isSaved ? 'Saved' : 'Save'}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionButton, isSpeaking && styles.actionButtonActive]}
+        onPress={toggleSpeech}
+      >
+        <Ionicons
+          name={isSpeaking ? 'stop-circle' : 'volume-high-outline'}
+          size={20}
+          color={isSpeaking ? COLORS.white : COLORS.gold}
+        />
+        <Text style={[styles.actionButtonText, isSpeaking && styles.actionButtonTextActive]}>
+          {isSpeaking ? 'Stop' : 'Listen'}
         </Text>
       </TouchableOpacity>
 
@@ -563,6 +688,104 @@ return (
     )}
 
     {/* Historical & Theological Context */}
+    {devotional.biblicalNarrative && (
+      <View style={styles.contextSection}>
+        <View style={[styles.contextCard, { backgroundColor: colors.surface }]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="journal" size={20} color={COLORS.gold} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Biblical Narrative</Text>
+          </View>
+          <Text style={[styles.contextText, { color: colors.text }]}>
+            {wrapScriptures(devotional.biblicalNarrative).split(/(\[\[.*?\]\])/g).map((part, i) => {
+              if (part.startsWith('[[') && part.endsWith(']]')) {
+                const ref = part.slice(2, -2);
+                return (
+                  <Text
+                    key={i}
+                    style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                    onPress={() => {
+                      setPreviewReference(ref);
+                      setPreviewVisible(true);
+                      Haptics.selectionAsync();
+                    }}
+                  >
+                    {ref}
+                  </Text>
+                );
+              }
+              return part;
+            })}
+          </Text>
+        </View>
+      </View>
+    )}
+
+    {devotional.strengthsAndVirtues && devotional.strengthsAndVirtues.length > 0 && (
+      <View style={styles.contextSection}>
+        <View style={[styles.contextCard, { backgroundColor: colors.surface }]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="trending-up" size={20} color={COLORS.gold} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Strengths & Virtues</Text>
+          </View>
+          {devotional.strengthsAndVirtues.map((item, index) => (
+            <View key={index} style={styles.listItem}>
+              <Ionicons name="checkmark-circle" size={16} color={COLORS.gold} style={{ marginTop: 2 }} />
+              <Text style={[styles.listItemText, { color: colors.text }]}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    )}
+
+    {devotional.failuresAndLessons && devotional.failuresAndLessons.length > 0 && (
+      <View style={styles.contextSection}>
+        <View style={[styles.contextCard, { backgroundColor: colors.surface }]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="warning" size={20} color={COLORS.gold} />
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Failures & Lessons</Text>
+          </View>
+          {devotional.failuresAndLessons.map((item, index) => (
+            <View key={index} style={styles.listItem}>
+              <Ionicons name="information-circle" size={16} color={COLORS.goldDark} style={{ marginTop: 2 }} />
+              <Text style={[styles.listItemText, { color: colors.text }]}>{item}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    )}
+
+    {devotional.christConnection && (
+      <View style={styles.contextSection}>
+        <View style={[styles.synthesisCard, { backgroundColor: isDarkMode ? colors.surface : COLORS.primaryLight }]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="infinite" size={20} color={COLORS.gold} />
+            <Text style={[styles.sectionTitle, { color: isDarkMode ? colors.text : COLORS.white }]}>Christ Connection</Text>
+          </View>
+          <Text style={[styles.synthesisText, { color: isDarkMode ? colors.text : COLORS.white }]}>
+            {wrapScriptures(devotional.christConnection).split(/(\[\[.*?\]\])/g).map((part, i) => {
+              if (part.startsWith('[[') && part.endsWith(']]')) {
+                const ref = part.slice(2, -2);
+                return (
+                  <Text
+                    key={i}
+                    style={{ color: COLORS.gold, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                    onPress={() => {
+                      setPreviewReference(ref);
+                      setPreviewVisible(true);
+                      Haptics.selectionAsync();
+                    }}
+                  >
+                    {ref}
+                  </Text>
+                );
+              }
+              return part;
+            })}
+          </Text>
+        </View>
+      </View>
+    )}
+
     {(devotional.historicalContext || devotional.theologicalInsight) && (
       <View style={styles.contextSection}>
         {devotional.historicalContext && (
@@ -627,60 +850,62 @@ return (
     )}
 
     {/* Main Content - Always show this */}
-    <View style={styles.contentSection}>
-      <View style={styles.sectionHeader}>
-        <Ionicons name="document-text" size={20} color={COLORS.gold} />
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>
-          {devotional.topic?.startsWith('Insight:') ? 'AI Verse Insight' : 'Exegesis & Study Notes'}
-        </Text>
-      </View>
-      <View style={[styles.contentCard, { backgroundColor: colors.surface }]}>
-        {devotional.content ? (
-          <Markdown
-            style={{
-              ...markdownStyles,
-              body: { ...markdownStyles.body, color: colors.text },
-              strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
-            }}
-            rules={{
-              text: (node, children, parent, styles) => {
-                const text = node.content;
-                if (!text) return null;
+    {devotional.type !== 'character_spotlight' && (
+      <View style={styles.contentSection}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="document-text" size={20} color={COLORS.gold} />
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            {devotional.topic?.startsWith('Insight:') ? 'AI Verse Insight' : 'Exegesis & Study Notes'}
+          </Text>
+        </View>
+        <View style={[styles.contentCard, { backgroundColor: colors.surface }]}>
+          {devotional.content ? (
+            <Markdown
+              style={{
+                ...markdownStyles,
+                body: { ...markdownStyles.body, color: colors.text },
+                strong: { ...markdownStyles.strong, color: isDarkMode ? colors.gold : COLORS.primary }
+              }}
+              rules={{
+                text: (node, children, parent, styles) => {
+                  const text = node.content;
+                  if (!text) return null;
 
-                const parts = text.split(/(\[\[.*?\]\])/g);
-                return (
-                  <Text key={node.key} style={styles.body}>
-                    {parts.map((part: string, i: number) => {
-                      if (part.startsWith('[[') && part.endsWith(']]')) {
-                        const ref = part.slice(2, -2);
-                        return (
-                          <Text
-                            key={i}
-                            style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
-                            onPress={() => {
-                              setPreviewReference(ref);
-                              setPreviewVisible(true);
-                              Haptics.selectionAsync();
-                            }}
-                          >
-                            {ref}
-                          </Text>
-                        );
-                      }
-                      return part;
-                    })}
-                  </Text>
-                );
-              }
-            }}
-          >
-            {wrapScriptures(devotional.content)}
-          </Markdown>
-        ) : (
-          <Text style={[styles.contentText, { color: colors.textSecondary }]}>Content loading...</Text>
-        )}
+                  const parts = text.split(/(\[\[.*?\]\])/g);
+                  return (
+                    <Text key={node.key} style={styles.body}>
+                      {parts.map((part: string, i: number) => {
+                        if (part.startsWith('[[') && part.endsWith(']]')) {
+                          const ref = part.slice(2, -2);
+                          return (
+                            <Text
+                              key={i}
+                              style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                              onPress={() => {
+                                setPreviewReference(ref);
+                                setPreviewVisible(true);
+                                Haptics.selectionAsync();
+                              }}
+                            >
+                              {ref}
+                            </Text>
+                          );
+                        }
+                        return part;
+                      })}
+                    </Text>
+                  );
+                }
+              }}
+            >
+              {wrapScriptures(devotional.content)}
+            </Markdown>
+          ) : (
+            <Text style={[styles.contentText, { color: colors.textSecondary }]}>Content loading...</Text>
+          )}
+        </View>
       </View>
-    </View>
+    )}
 
     {/* Synthesis Box with click support */}
     {(devotional.oldTestamentShadows || devotional.newTestamentFulfillment) && (
@@ -1075,6 +1300,13 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     marginBottom: SPACING.md,
   },
+  headerSubtitle: {
+    fontSize: FONTS.ui.size.tiny,
+    color: COLORS.gold,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
   headerMeta: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1374,6 +1606,17 @@ const styles = StyleSheet.create({
     fontSize: FONTS.ui.size.medium,
     color: COLORS.grayDark,
     lineHeight: 24,
+  },
+  listItem: {
+    flexDirection: 'row',
+    marginBottom: SPACING.sm,
+    paddingRight: SPACING.sm,
+  },
+  listItemText: {
+    fontSize: FONTS.ui.size.medium,
+    lineHeight: 22,
+    marginLeft: SPACING.sm,
+    flex: 1,
   },
   synthesisSection: {
     marginHorizontal: SPACING.md,

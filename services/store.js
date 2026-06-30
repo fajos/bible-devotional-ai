@@ -646,6 +646,17 @@ export const getLastReadState = async () => {
   }
 };
 
+// --- Reading Progress ---
+
+/**
+ * Marks a chapter as read for a book.
+ * progress: { [bookId]: Set of chapter numbers }
+ */
+export const getReadingProgress = async () => {
+  // Deprecated: Moving to bible_year_progress
+  return [];
+};
+
 export default {
   storeDevotional,
   getStoredDevotional,
@@ -678,4 +689,5 @@ export default {
   setAudioPreferences,
   getPreferredBibleVersion,
   setPreferredBibleVersion,
+  getReadingProgress,
 };

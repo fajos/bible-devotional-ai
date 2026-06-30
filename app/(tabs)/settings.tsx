@@ -37,10 +37,12 @@ export default function SettingsScreen() {
   const [cacheSize, setCacheSize] = useState('0 B');
   const [devotionalReminder, setDevotionalReminder] = useState(false);
   const [readingPlanReminder, setReadingPlanReminder] = useState(false);
+  const [votdReminder, setVotdReminder] = useState(false);
   const [reminderTime, setReminderTime] = useState(new Date());
   const [readingPlanTime, setReadingPlanTime] = useState(new Date());
+  const [votdTime, setVotdTime] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
-  const [pickerType, setPickerType] = useState<'devotional' | 'reading_plan'>('devotional');
+  const [pickerType, setPickerType] = useState<'devotional' | 'reading_plan' | 'votd'>('devotional');
   const [preferredVersion, setPreferredVersion] = useState('NKJV');
   const [audioPrefs, setAudioPrefs] = useState({ gender: 'female', rate: 0.9, voiceIdentifier: null });
   const [availableVoices, setAvailableVoices] = useState<any[]>([]);
@@ -84,6 +86,16 @@ export default function SettingsScreen() {
         setReadingPlanTime(time);
       }
     }
+
+    if (settings[REMINDER_TYPES.VOTD]) {
+      setVotdReminder(settings[REMINDER_TYPES.VOTD].enabled);
+      if (settings[REMINDER_TYPES.VOTD].hour !== undefined) {
+        const time = new Date();
+        time.setHours(settings[REMINDER_TYPES.VOTD].hour);
+        time.setMinutes(settings[REMINDER_TYPES.VOTD].minute || 0);
+        setVotdTime(time);
+      }
+    }
   };
 
   const toggleDevotionalReminder = async (value: boolean) => {
@@ -106,32 +118,60 @@ export default function SettingsScreen() {
     }
   };
 
+  const toggleVotdReminder = async (value: boolean) => {
+    if (value) {
+      setPickerType('votd');
+      setShowPicker(true);
+    } else {
+      await notifications.cancelReminder(REMINDER_TYPES.VOTD);
+      setVotdReminder(false);
+    }
+  };
+
   const onTimeChange = async (event: DateTimePickerEvent, selectedDate?: Date) => {
     setShowPicker(Platform.OS === 'ios');
 
     if (event.type === 'set' && selectedDate) {
-      const type = pickerType === 'devotional' ? REMINDER_TYPES.DEVOTIONAL : REMINDER_TYPES.READING_PLAN;
+      let type: string;
+      if (pickerType === 'devotional') {
+        type = REMINDER_TYPES.DEVOTIONAL;
+        setReminderTime(selectedDate);
+      } else if (pickerType === 'reading_plan') {
+        type = REMINDER_TYPES.READING_PLAN;
+        setReadingPlanTime(selectedDate);
+      } else {
+        type = REMINDER_TYPES.VOTD;
+        setVotdTime(selectedDate);
+      }
 
-      if (pickerType === 'devotional') setReminderTime(selectedDate);
-      else setReadingPlanTime(selectedDate);
-
-      const success = await notifications.scheduleDailyReminder(
-        type,
-        selectedDate.getHours(),
-        selectedDate.getMinutes()
-      );
+      let success;
+      if (pickerType === 'votd') {
+        success = await notifications.scheduleVOTDReminders(
+          selectedDate.getHours(),
+          selectedDate.getMinutes()
+        );
+      } else {
+        success = await notifications.scheduleDailyReminder(
+          type as any,
+          selectedDate.getHours(),
+          selectedDate.getMinutes()
+        );
+      }
 
       if (success) {
         if (pickerType === 'devotional') setDevotionalReminder(true);
-        else setReadingPlanReminder(true);
+        else if (pickerType === 'reading_plan') setReadingPlanReminder(true);
+        else setVotdReminder(true);
       } else {
         if (pickerType === 'devotional') setDevotionalReminder(false);
-        else setReadingPlanReminder(false);
+        else if (pickerType === 'reading_plan') setReadingPlanReminder(false);
+        else setVotdReminder(false);
         Alert.alert('Permission Denied', 'Please enable notifications in settings.');
       }
     } else if (event.type === 'dismissed') {
       if (pickerType === 'devotional' && !devotionalReminder) setDevotionalReminder(false);
       if (pickerType === 'reading_plan' && !readingPlanReminder) setReadingPlanReminder(false);
+      if (pickerType === 'votd' && !votdReminder) setVotdReminder(false);
     }
   };
 
@@ -451,9 +491,31 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <View style={styles.settingItem}>
+          <View style={styles.settingInfo}>
+            <Text style={[styles.settingLabel, dynamicStyles.settingLabel]}>Verse of the Day</Text>
+            <Text style={[styles.settingDescription, dynamicStyles.settingDescription]}>Daily verse with AI reflection</Text>
+          </View>
+          <View style={styles.switchContainer}>
+            {votdReminder && (
+              <TouchableOpacity onPress={() => { setPickerType('votd'); setShowPicker(true); }} style={styles.timeDisplay}>
+                <Text style={styles.timeText}>
+                  {votdTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            )}
+            <Switch
+              value={votdReminder}
+              onValueChange={toggleVotdReminder}
+              trackColor={{ false: '#D1D1D1', true: COLORS.gold }}
+              thumbColor={COLORS.white}
+            />
+          </View>
+        </View>
+
         {showPicker && (
           <DateTimePicker
-            value={pickerType === 'devotional' ? reminderTime : readingPlanTime}
+            value={pickerType === 'devotional' ? reminderTime : (pickerType === 'reading_plan' ? readingPlanTime : votdTime)}
             mode="time"
             is24Hour={false}
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
