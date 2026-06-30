@@ -255,41 +255,45 @@ class OpenAIService {
       }
     ]`;
 
-    const response = await this.generateContent(prompt, "You are a pastoral theologian who provides concise, powerful daily spiritual insights. Respond only with valid JSON. Never leave the JSON incomplete.");
+    const response = await this.generateContent(prompt, "You are a pastoral theologian who provides concise, powerful daily spiritual insights. Respond only with valid JSON. Never leave the JSON incomplete. Do not include markdown code blocks like ```json.");
 
     try {
-      // Robust JSON extraction
-      let jsonString = response;
-      const firstBracket = response.indexOf('[');
-      const lastBracket = response.lastIndexOf(']');
+      // Step 1: Clean the response of common AI "noise"
+      let cleanedResponse = response.trim();
 
-      if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-        jsonString = response.substring(firstBracket, lastBracket + 1);
+      // Remove markdown code blocks if present
+      cleanedResponse = cleanedResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+
+      // Step 2: Extract the JSON array using a robust regex
+      const jsonMatch = cleanedResponse.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        throw new Error("No JSON array found in response");
       }
 
-      // Attempt to fix common truncation issues by closing the array if it looks like it's cut off
+      let jsonString = jsonMatch[0];
+
+      // Step 3: Self-healing for truncated JSON
       if (!jsonString.endsWith(']')) {
-        console.warn("Detected potentially truncated JSON, attempting to fix...");
-        // If it ends with a comma, remove it
-        jsonString = jsonString.trim();
-        if (jsonString.endsWith(',')) {
-          jsonString = jsonString.slice(0, -1);
+        console.warn("Detected truncated JSON, attempting to fix...");
+
+        // Find the last complete object
+        const lastCompleteObject = jsonString.lastIndexOf('}');
+        if (lastCompleteObject !== -1) {
+          jsonString = jsonString.substring(0, lastCompleteObject + 1) + ']';
+        } else {
+          // If no complete object, try to at least close the array
+          jsonString += ']';
         }
-        // If it doesn't end with a closing brace for an object, try to find the last complete object
-        if (!jsonString.endsWith('}')) {
-          const lastBrace = jsonString.lastIndexOf('}');
-          if (lastBrace !== -1) {
-            jsonString = jsonString.substring(0, lastBrace + 1);
-          }
-        }
-        jsonString += ']';
       }
+
+      // Step 4: Final validation - remove any stray control characters or invalid whitespace
+      // (Common in some AI responses)
+      jsonString = jsonString.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
       return JSON.parse(jsonString);
     } catch (error) {
       console.error("Failed to parse VOTD batch JSON:", error);
-      console.log("Raw response length:", response.length);
-      console.log("Raw response was:", response);
+      console.log("Raw response snippet:", response.substring(0, 200) + "...");
       throw new Error("Could not generate Verse of the Day batch.");
     }
   }
@@ -301,11 +305,11 @@ class OpenAIService {
 
     Please structure your response EXACTLY as follows (use these exact headers):
 
-    CHARACTER: [Name of the Character]
+    CHARACTER: Name of the Character
 
-    THEOLOGICAL_TITLE: [A compelling title capturing the essence of their life]
+    THEOLOGICAL_TITLE: A compelling title capturing the essence of their life
 
-    KEY_VERSE: [Primary verse reference related to them]
+    KEY_VERSE: Primary verse reference related to them (e.g., Genesis 1:1)
 
     BIBLICAL_NARRATIVE:
     [Provide a 3-4 paragraph summary of their life and role in the biblical story.]

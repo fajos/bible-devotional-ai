@@ -728,11 +728,14 @@ const parseCharacterSpotlightResponse = (aiContent, bibleVersion) => {
     const upper = cleanLine.toUpperCase().replace(/_/g, ' ').replace(/ /g, '');
 
     if (upper.startsWith('CHARACTER')) {
-      sections.character = cleanLine.replace(/^CHARACTER:?\s*/i, '');
+      sections.character = cleanLine.replace(/^CHARACTER:?\s*/i, '').replace(/[\[\]]/g, '').trim();
     } else if (upper.startsWith('THEOLOGICALTITLE')) {
-      sections.topic = cleanLine.replace(/^THEOLOGICAL_TITLE:?\s*/i, '').replace(/^THEOLOGICAL TITLE:?\s*/i, '');
+      sections.topic = cleanLine.replace(/^THEOLOGICAL_TITLE:?\s*/i, '').replace(/^THEOLOGICAL TITLE:?\s*/i, '').replace(/[\[\]]/g, '').trim();
     } else if (upper.startsWith('KEYVERSE')) {
-      sections.keyVerse.reference = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '');
+      // Improved reference cleaning: remove header, brackets, and any trailing non-reference text
+      let ref = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '').trim();
+      ref = ref.replace(/[\[\]]/g, '').trim(); // Remove brackets if AI adds them
+      sections.keyVerse.reference = ref;
     } else if (upper.startsWith('BIBLICALNARRATIVE')) {
       currentSection = 'biblicalNarrative';
     } else if (upper.startsWith('STRENGTHSANDVIRTUES')) {

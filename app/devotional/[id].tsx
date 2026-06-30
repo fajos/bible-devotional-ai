@@ -197,6 +197,30 @@ const adaptStudyToDevotional = (study: StudyData): Devotional => {
   };
 };
 
+const repairMalformedData = (data: Devotional): Devotional => {
+  const clean = (text?: string) => {
+    if (!text) return text;
+    return text
+      .replace(/^THEOLOGICAL_TITLE:?\s*/i, '')
+      .replace(/^THEOLOGICAL TITLE:?\s*/i, '')
+      .replace(/^CHARACTER:?\s*/i, '')
+      .replace(/^KEY_VERSE:?\s*/i, '')
+      .replace(/^KEY VERSE:?\s*/i, '')
+      .replace(/[\[\]]/g, '')
+      .trim();
+  };
+
+  return {
+    ...data,
+    topic: clean(data.topic),
+    character: clean(data.character),
+    keyVerse: data.keyVerse ? {
+      ...data.keyVerse,
+      reference: clean(data.keyVerse.reference) || ''
+    } : data.keyVerse
+  };
+};
+
 const isStudyData = (data: DevotionalSource): data is StudyData => {
   return data.type === 'study' ||
     'keyVerses' in data ||
@@ -206,10 +230,13 @@ const isStudyData = (data: DevotionalSource): data is StudyData => {
 };
 
 const resolveDevotional = (data: DevotionalSource): Devotional => {
+  let resolved: Devotional;
   if (data.type === 'character_spotlight') {
-    return data as any as Devotional;
+    resolved = data as any as Devotional;
+  } else {
+    resolved = isStudyData(data) ? adaptStudyToDevotional(data) : data;
   }
-  return isStudyData(data) ? adaptStudyToDevotional(data) : data;
+  return repairMalformedData(resolved);
 };
 
 const fetchMissingVerseText = async (devotional: Devotional): Promise<Devotional> => {

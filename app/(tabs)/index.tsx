@@ -149,7 +149,24 @@ export default function DailyDevotionalScreen(): JSX.Element {
       const preferredVersion = await store.getPreferredBibleVersion();
       const data = await getWeeklyCharacterSpotlight(preferredVersion);
       if (data) {
-        setCharacterSpotlight(data as any);
+        // Repair any malformed strings before setting state
+        const clean = (text?: string) => {
+          if (!text) return '';
+          return text
+            .replace(/^THEOLOGICAL_TITLE:?\s*/i, '')
+            .replace(/^THEOLOGICAL TITLE:?\s*/i, '')
+            .replace(/^CHARACTER:?\s*/i, '')
+            .replace(/[\[\]]/g, '')
+            .trim();
+        };
+
+        const repairedData = {
+          ...data,
+          character: clean(data.character),
+          topic: clean(data.topic)
+        };
+
+        setCharacterSpotlight(repairedData as any);
       }
     } catch (error) {
       console.error('Failed to load character spotlight:', error);
