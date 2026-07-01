@@ -177,6 +177,7 @@ export default function DevotionalDetailScreen(): JSX.Element {
 const adaptStudyToDevotional = (study: StudyData): Devotional => {
   return {
     id: study.id,
+    type: study.type || 'study',
     date: study.date || new Date().toISOString(),
     topic: study.topic,
     keyVerse: (study.keyVerses && study.keyVerses[0]) ? {
@@ -266,13 +267,16 @@ const fetchMissingVerseText = async (devotional: Devotional): Promise<Devotional
           bibleId = API_CONFIG.BIBLE_API.versions[bibleId];
       }
 
-      const verseData = await bibleApi.getFormattedVerse(bibleId, devotional.keyVerse.reference);
-      if (verseData && verseData.content) {
+      // Ensure the reference is clean (especially for Yoruba unicode characters)
+      const cleanRef = devotional.keyVerse.reference.replace(/[\[\]]/g, '').trim();
+
+      const verseData = await bibleApi.getFormattedVerse(bibleId, cleanRef);
+      if (verseData && (verseData.content || verseData.text)) {
         return {
           ...devotional,
           keyVerse: {
             ...devotional.keyVerse,
-            text: verseData.content
+            text: verseData.content || verseData.text || ''
           }
         };
       }
@@ -356,9 +360,12 @@ const loadDevotional = async (): Promise<void> => {
       const newSavedState = await store.toggleSaveDevotional(devotional);
       setIsSaved(newSavedState);
 
+      const typeLabel = devotional.type === 'character_spotlight' ? 'Weekly Spotlight' :
+                        (devotional.type === 'study' ? 'Generated Study' : 'Devotional');
+
       Alert.alert(
         newSavedState ? 'Saved' : 'Removed',
-        newSavedState ? 'Devotional added to your library' : 'Devotional removed from your library'
+        newSavedState ? `${typeLabel} added to your library` : `${typeLabel} removed from your library`
       );
     } catch (error) {
       Alert.alert('Error', 'Failed to update library');
@@ -585,7 +592,8 @@ return (
           <View style={styles.versionBadge}>
             <Ionicons name="book" size={14} color={COLORS.gold} />
             <Text style={styles.versionText}>
-              {devotional.type === 'character_spotlight' ? devotional.topic : (devotional.bibleVersion || devotional.type || 'Study')}
+              {devotional.type === 'character_spotlight' ? 'Weekly Spotlight' :
+               (devotional.type === 'study' ? 'Generated Study' : (devotional.bibleVersion || 'Devotional'))}
             </Text>
           </View>
         </View>

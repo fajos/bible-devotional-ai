@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
 import { REMINDER_TYPES, refreshNotifications, requestPermissions } from '../services/notifications';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
+import { ensureUpToDate } from '../services/store';
 
 function RootLayoutContent() {
   const router = useRouter();
@@ -15,8 +16,16 @@ function RootLayoutContent() {
   const { colors, isDarkMode } = useAppTheme();
 
   useEffect(() => {
-    requestPermissions();
-    refreshNotifications();
+    const init = async () => {
+      // 1. Ensure cache is up to date with app version
+      await ensureUpToDate();
+
+      // 2. Setup permissions and notifications
+      await requestPermissions();
+      await refreshNotifications();
+    };
+
+    init();
 
     Notifications.getLastNotificationResponseAsync().then(response => {
       if (response) {

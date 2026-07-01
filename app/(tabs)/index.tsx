@@ -120,6 +120,7 @@ export default function DailyDevotionalScreen(): JSX.Element {
   const { colors, isDarkMode } = useAppTheme();
   const [devotional, setDevotional] = useState<Devotional | null>(null);
   const [characterSpotlight, setCharacterSpotlight] = useState<CharacterSpotlight | null>(null);
+  const [isSpotlightNew, setIsSpotlightNew] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingMessage, setLoadingMessage] = useState<string>('Opening the Word...');
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
@@ -167,6 +168,10 @@ export default function DailyDevotionalScreen(): JSX.Element {
         };
 
         setCharacterSpotlight(repairedData as any);
+
+        // Check if this specific spotlight has been seen
+        const lastSeenId = await store.getCachedData('last_seen_spotlight_id');
+        setIsSpotlightNew(lastSeenId !== data.id);
       }
     } catch (error) {
       console.error('Failed to load character spotlight:', error);
@@ -483,13 +488,19 @@ export default function DailyDevotionalScreen(): JSX.Element {
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>Weekly Spotlight</Text>
-                <View style={styles.newBadge}>
-                  <Text style={styles.newBadgeText}>NEW</Text>
-                </View>
+                {isSpotlightNew && (
+                  <View style={styles.newBadge}>
+                    <Text style={styles.newBadgeText}>NEW</Text>
+                  </View>
+                )}
               </View>
               <TouchableOpacity
                 style={[styles.characterCard, { backgroundColor: colors.surface }]}
-                onPress={() => {
+                onPress={async () => {
+                  // Mark as seen
+                  await store.setCachedData('last_seen_spotlight_id', characterSpotlight.id);
+                  setIsSpotlightNew(false);
+
                   store.storeDevotional(characterSpotlight as any);
                   router.push(`/devotional/${characterSpotlight.id}`);
                 }}

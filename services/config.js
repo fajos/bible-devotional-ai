@@ -1,5 +1,8 @@
 // services/config.js
 export const API_CONFIG = {
+  // SCHEMA_VERSION: Update this to force a cache refresh when you make major changes to Bible lists or UI structures
+  SCHEMA_VERSION: '1.0.2',
+
   OPENAI: {
     apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
     model: 'gpt-4o',

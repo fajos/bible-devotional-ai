@@ -9,7 +9,9 @@ class OpenAIService {
   }
 
   getLanguageInstruction(bibleVersion) {
-    if (bibleVersion === 'GH_YOR' || bibleVersion === 'YOR' || bibleVersion === 'Bibeli Mimọ (Yoruba)') {
+    // Standardize IDs to check for Yoruba
+    const id = (bibleVersion || '').toUpperCase();
+    if (id === 'GH_YOR' || id === 'YOR' || id === 'YOR1900' || id.includes('YORUBA')) {
       return "\n\nIMPORTANT: The user is using a Yoruba Bible. You MUST provide all reflections, content, applications, prayers, and insights in the Yoruba language. Ensure the tone is scholarly yet spiritually vibrant in Yoruba.";
     }
     return "";
@@ -310,10 +312,11 @@ class OpenAIService {
     }
   }
 
-  async generateCharacterSpotlight(bibleVersion = 'NKJV') {
+  async generateCharacterSpotlight(bibleVersion = 'NKJV', weekId = '') {
     const prompt = `Create a deep, scholarly weekly "Bible Character Spotlight" using the ${bibleVersion} Bible version.${this.getLanguageInstruction(bibleVersion)}
 
     The spotlight should focus on a prominent or deeply significant biblical figure.
+    ${weekId ? `CURRENT WEEK SEED: ${weekId} (Use this to ensure a diverse selection across the year).` : ''}
 
     Please structure your response EXACTLY as follows (use these exact headers):
 

@@ -12,10 +12,10 @@ class DevotionalEngine {
   // Extract verse references from text
   extractVerseReferences(text) {
     const patterns = [
-      // Pattern: "John 3:16" or "Genesis 1:1-5"
-      /\b(\d?\s?[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?\b/g,
-      // Pattern: "Psalm 23" (chapter only)
-      /\b(\d?\s?[A-Za-z]+)\s+(\d+)\b(?!:)/g,
+      // Pattern: "John 3:16" or "Gẹ́nẹ́sísì 1:1"
+      /\b(?:\d\s*)?[^\d\s\W]+(?:\s*[^\d\s\W]+)*\s+\d+:\d+(?:-\d+)?\b/gu,
+      // Pattern: "Psalm 23"
+      /\b(?:\d\s*)?[^\d\s\W]+(?:\s*[^\d\s\W]+)*\s+\d+\b(?!:)/gu,
     ];
 
     const references = new Set();
@@ -152,17 +152,26 @@ class DevotionalEngine {
       
       // Step 2: Parse AI response
       const parsed = this.parseDevotionalResponse(aiContent);
-      
-      // Step 3: Get actual Bible text for key verse
-      const bibleVersionId = this.getBibleVersionId(bibleVersion);
-      let keyVerseData = null;
-      
-      if (parsed.keyVerse && bibleVersionId) {
-        console.log(`Fetching key verse: ${parsed.keyVerse} (${bibleVersionId})`);
-        const verseText = await bibleAPIService.getFormattedVerse(
-          bibleVersionId,
-          parsed.keyVerse
-        );
+
+    // Step 3: Get actual Bible text for key verse
+    const preferredVersion = await store.getPreferredBibleVersion();
+    const bibleVersionId = this.getBibleVersionId(preferredVersion);
+    let keyVerseData = null;
+
+    if (parsed.keyVerse && bibleVersionId) {
+      // Robust clean: remove brackets, markdown bold, and any technical headers the parser missed
+      const cleanRef = parsed.keyVerse
+        .replace(/[\[\]]/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/^KEY_VERSE:?\s*/i, '')
+        .replace(/^KEY VERSE:?\s*/i, '')
+        .trim();
+
+      console.log(`Fetching Daily Devotional key verse: ${cleanRef} (${bibleVersionId})`);
+      const verseText = await bibleAPIService.getFormattedVerse(
+        bibleVersionId,
+        cleanRef
+      );
         
         if (verseText) {
           keyVerseData = {
@@ -310,7 +319,7 @@ async generateBibleStudy(topic, bibleVersion = 'NKJV') {
     
     if (study.keyVerses && study.keyVerses.length > 0 && bibleVersionId) {
       console.log(`Fetching ${study.keyVerses.length} verses for Bible Study on ${topic}`);
-      const verseRefs = study.keyVerses.map(v => v.reference);
+      const verseRefs = study.keyVerses.map(v => v.reference.replace(/[\[\]]/g, '').trim());
       const verseTexts = await bibleAPIService.getMultipleVerses(bibleVersionId, verseRefs);
       
       // Enhance verses with actual text
@@ -619,7 +628,8 @@ export const refillVOTDCache = async () => {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const dKey = d.toDateString();
-      if (!votdCache[dKey]) {
+      // If we don't have it, or it was generated for a different version/language, refill it
+      if (!votdCache[dKey] || votdCache[dKey].version !== preferredVersion) {
         missingDays.push(dKey);
       }
     }
@@ -652,19 +662,22 @@ export const refillVOTDCache = async () => {
 
 export const getWeeklyCharacterSpotlight = async (bibleVersion = 'NKJV') => {
   try {
-    // Get week number to use as part of the cache key
+    // Standard ISO-like week calculation (rotating every Monday)
     const now = new Date();
-    const start = new Date(now.getFullYear(), 0, 1);
-    const diff = now.getTime() - start.getTime();
-    const oneWeek = 1000 * 60 * 60 * 24 * 7;
-    const weekNumber = Math.floor(diff / oneWeek);
-    const cacheKey = `character_spotlight_${now.getFullYear()}_W${weekNumber}_${bibleVersion}`;
+    const dayOfWeek = now.getDay() || 7; // Sunday is 0, make it 7
+    const mondayOfThisWeek = new Date(now);
+    mondayOfThisWeek.setHours(0, 0, 0, 0);
+    mondayOfThisWeek.setDate(now.getDate() - (dayOfWeek - 1));
+
+    // Generate a unique cache key based on the start date of the current week
+    const weekKey = `${mondayOfThisWeek.getFullYear()}-W${Math.ceil((((mondayOfThisWeek - new Date(mondayOfThisWeek.getFullYear(), 0, 1)) / 86400000) + 1) / 7)}`;
+    const cacheKey = `character_spotlight_${weekKey}_${bibleVersion}`;
 
     const cached = await store.getCachedData(cacheKey);
     if (cached) return cached;
 
-    console.log(`Generating weekly character spotlight for week ${weekNumber}...`);
-    const aiContent = await openaiService.generateCharacterSpotlight(bibleVersion);
+    console.log(`Generating fresh weekly character spotlight for week starting ${mondayOfThisWeek.toDateString()}...`);
+    const aiContent = await openaiService.generateCharacterSpotlight(bibleVersion, weekKey);
 
     // Parse the response
     const spotlight = parseCharacterSpotlightResponse(aiContent, bibleVersion);
@@ -734,11 +747,10 @@ const parseCharacterSpotlightResponse = (aiContent, bibleVersion) => {
     } else if (upper.startsWith('KEYVERSE')) {
       // Improved reference cleaning: remove header, brackets, and any trailing non-reference text
       let ref = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '').trim();
-      ref = ref.replace(/[\[\]]/g, '').trim(); // Remove brackets if AI adds them
+      ref = ref.replace(/[\[\]]/g, '').replace(/\*\*/g, '').trim(); // Remove brackets and bold
 
-      // Safety check: sometimes the AI dumps the text here too if it fails formatting
-      // Reference pattern: "John 3:16" or "Genesis 1:1"
-      const refMatch = ref.match(/^([1-3]\s+)?[A-Z][a-z]+\s+\d+:\d+(-\d+)?/i);
+      // Safety check: supports Yoruba Unicode
+      const refMatch = ref.match(/^([1-3]\s+)?[^\d\s\W]+(?:\s*[^\d\s\W]+)*\s+\d+:\d+(-\d+)?/iu);
       if (refMatch) {
           sections.keyVerse.reference = refMatch[0].trim();
       } else {

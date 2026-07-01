@@ -56,8 +56,12 @@ export default function ScripturePreviewModal({
       if (prefs && !bibleVersion) {
         version = prefs;
       }
+
+      // Clean reference - remove any leading/trailing AI artifacts that wrapScriptures might have missed
+      const cleanRef = reference.replace(/[\[\]]/g, '').trim();
+
       const activeBibleId = await bibleApi.resolveBibleId(version);
-      const data = await bibleApi.getFormattedVerse(activeBibleId, reference);
+      const data = await bibleApi.getFormattedVerse(activeBibleId, cleanRef);
 
       if (data && (data.verses?.length > 0 || data.content)) {
         setVerseData(data);

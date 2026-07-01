@@ -23,11 +23,72 @@ const FAVORITE_BIBLES_KEY = 'favorite_bibles';
 const LEGACY_SAVED_DEVOTIONALS_KEY = 'savedDevotionals';
 const PREFERRED_VERSION_KEY = 'preferred_bible_version';
 const AUDIO_PREFS_KEY = 'audio_preferences';
+const SCHEMA_VERSION_KEY = 'app_schema_version';
 
 const BASE_DIR = Paths.document; // Persistent storage
 const BIBLE_CACHE_DIR = new Directory(Paths.cache, 'bible_cache');
 
 let _bibleCacheDirValidated = false;
+
+/**
+ * Migration & Cache Invalidation:
+ * Checks if the stored schema version matches the current API_CONFIG.
+ * If not, clears non-essential cache to ensure new features/versions appear.
+ * CRITICAL: Protects user-created data (Prayers, Library, Highlights, Downloaded Bibles).
+ */
+export const ensureUpToDate = async () => {
+  try {
+    const currentVersion = API_CONFIG.SCHEMA_VERSION;
+    const storedVersion = await AsyncStorage.getItem(SCHEMA_VERSION_KEY);
+
+    if (storedVersion !== currentVersion) {
+      console.log(`Schema update detected: ${storedVersion} -> ${currentVersion}. Refreshing system cache...`);
+
+      // 1. Clear ONLY the temporary Bible text cache
+      // This forces the app to re-fetch the version list and any malformed verse data
+      await clearSystemCacheOnly();
+
+      // 2. Clear notification settings to ensure new types are registered
+      await AsyncStorage.removeItem('notification_settings');
+
+      // 3. Update the stored version
+      await AsyncStorage.setItem(SCHEMA_VERSION_KEY, currentVersion);
+
+      return true;
+    }
+  } catch (error) {
+    console.error('Error during update check:', error);
+  }
+  return false;
+};
+
+/**
+ * Granular clear: Removes only system-generated cache (Bible lists, search indices).
+ * PROTECTS: full_bible_github_* files (Downloaded Bibles), prayers, and library.
+ */
+export const clearSystemCacheOnly = async () => {
+  try {
+    if (!_bibleCacheDirValidated) {
+      await BIBLE_CACHE_DIR.create({ idempotent: true });
+      _bibleCacheDirValidated = true;
+    }
+
+    const contents = await BIBLE_CACHE_DIR.list();
+    for (const item of contents) {
+      if (item instanceof File) {
+        const name = item.name.toLowerCase();
+        // PROTECT: Don't delete downloaded full Bibles or the download registry
+        if (name.startsWith('full_bible_github_') || name === 'downloaded_bibles.json') {
+          continue;
+        }
+        // Delete volatile files like 'bible_list_full.json', 'content_bolls_*', 'votd_cache.json', etc.
+        await item.delete();
+      }
+    }
+  } catch (e) {
+    console.error('Error clearing system cache:', e);
+  }
+};
 
 export const storeDevotional = (data) => {
   currentDevotionalData = data;

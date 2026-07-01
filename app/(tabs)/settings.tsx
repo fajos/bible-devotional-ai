@@ -414,7 +414,43 @@ export default function SettingsScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.voiceRow}>
               {availableVoices.map((v) => {
                 const isSelected = audioPrefs.voiceIdentifier === v.identifier;
-                const isHighQual = v.quality === Speech.VoiceQuality.Enhanced || v.name.includes('Premium');
+                const isHighQual = v.quality === Speech.VoiceQuality.Enhanced || v.name.toLowerCase().includes('premium') || v.name.toLowerCase().includes('enhanced');
+
+                // Advanced Device-Agnostic Naming Logic
+                let displayName = '';
+                const lowerName = v.name.toLowerCase();
+                const lowerId = v.identifier.toLowerCase();
+
+                // 1. Identify Provider/Origin
+                const isGoogle = lowerId.includes('google') || lowerName.includes('google');
+                const isSamsung = lowerId.includes('samsung') || lowerName.includes('samsung') || lowerId.includes('smt');
+
+                // 2. Identify Gender
+                const isMale = lowerId.includes('male') || lowerName.includes('male') || lowerId.includes('smtg02') || lowerId.includes('en-us-x-sfg#m');
+                const isFemale = lowerId.includes('female') || lowerName.includes('female') || lowerId.includes('smtg01') || lowerId.includes('en-us-x-sfg#f') || lowerId.includes('samantha');
+
+                const genderLabel = isMale ? 'Male' : (isFemale ? 'Female' : 'Voice');
+
+                // 3. Construct Meaningful Name
+                if (isSamsung) {
+                  const type = lowerId.includes('smtg02') ? 'Deep' : (lowerId.includes('smtg01') ? 'Soft' : 'Standard');
+                  displayName = `Samsung ${genderLabel} (${type})`;
+                } else if (isGoogle) {
+                  const variantMatch = lowerId.match(/(\d+)/);
+                  const variant = variantMatch ? ` #${variantMatch[0]}` : '';
+                  displayName = `Google ${genderLabel}${variant}`;
+                } else if (lowerName.includes('samantha')) {
+                  displayName = 'Samantha (Natural)';
+                } else if (lowerName.includes('daniel')) {
+                  displayName = 'Daniel (British)';
+                } else {
+                  // Fallback for "default", "local" or other phone models (Pixel, Xiaomi, etc.)
+                  const countryMatch = lowerId.match(/en-(\w+)/);
+                  const country = countryMatch ? countryMatch[1].toUpperCase() : 'Local';
+                  const shortId = v.identifier.split(/[-#_]/).pop()?.toUpperCase() || 'A';
+                  displayName = `${genderLabel} ${country} (${shortId})`;
+                }
+
                 return (
                   <TouchableOpacity
                     key={v.identifier}
@@ -430,11 +466,7 @@ export default function SettingsScreen() {
                       isSelected && styles.voiceChipTextActive,
                       { color: isSelected ? COLORS.white : colors.text }
                     ]}>
-                      {v.name.includes('SMTg02') ? 'Male (Deep)' :
-                       v.name.includes('SMTg01') ? 'Female (Soft)' :
-                       v.name.includes('samantha') ? 'Samantha' :
-                       v.name.includes('daniel') ? 'Daniel' :
-                       v.name.replace('English (United States)', 'US').replace('English (United Kingdom)', 'UK').split('-').pop() || v.name}
+                      {displayName}
                     </Text>
                     {isHighQual && <Ionicons name="sparkles" size={10} color={isSelected ? COLORS.white : COLORS.gold} style={{ marginLeft: 4 }} />}
                   </TouchableOpacity>

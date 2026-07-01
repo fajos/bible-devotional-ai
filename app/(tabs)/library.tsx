@@ -17,9 +17,11 @@ import { useAppTheme } from '../../context/ThemeContext';
 
 interface Devotional {
   id: string;
-  type: 'study' | 'reading_plan' | 'devotional';
+  type: 'study' | 'reading_plan' | 'devotional' | 'character_spotlight';
   topic?: string;
+  character?: string;
   content?: string;
+  biblicalNarrative?: string;
   date?: string;
   savedAt?: string;
   bibleVersion?: string;
@@ -92,56 +94,83 @@ export default function LibraryScreen() {
       .trim();
   };
 
-  const renderItem: ListRenderItem<Devotional> = ({ item }) => (
-    <TouchableOpacity
-      style={[styles.itemCard, { backgroundColor: colors.surface }]}
-      onPress={() => {
-        store.storeDevotional(item);
-        if (item.type === 'reading_plan') {
-          router.push(`/reading-plan/${item.id}`);
-        } else {
-          router.push(`/devotional/${item.id}`);
-        }
-      }}
-    >
-      <View style={styles.itemHeader}>
-        <View style={styles.itemType}>
-          <Ionicons
-            name={item.type === 'study' ? 'school' : item.type === 'reading_plan' ? 'calendar' : 'book'}
-            size={16}
-            color={COLORS.gold}
-          />
-          <Text style={styles.itemTypeText}>
-            {item.type === 'study' ? (item.topic?.startsWith('Insight:') ? 'Insight' : 'Study') : item.type === 'reading_plan' ? 'Reading Plan' : 'Devotional'}
-          </Text>
-        </View>
-        <TouchableOpacity onPress={() => deleteItem(item.id)}>
-          <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-        </TouchableOpacity>
-      </View>
+  const renderItem: ListRenderItem<Devotional> = ({ item }) => {
+    // Robust type detection
+    const isCharacter = item.type === 'character_spotlight' || !!item.character;
+    const isStudy = item.type === 'study' || (!item.type && (!!(item as any).studyNotes || !!(item as any).keyVerses));
+    const isPlan = item.type === 'reading_plan' || !!item.data;
 
-      <Text style={[styles.itemTopic, { color: colors.text }]}>{item.type === 'reading_plan' ? item.data?.title ?? '' : item.topic}</Text>
+    const getLabel = () => {
+      if (isCharacter) return 'Weekly Spotlight';
+      if (isStudy) return item.topic?.startsWith('Insight:') ? 'Generated Insight' : 'Generated Study';
+      if (isPlan) return 'Reading Plan';
+      return 'Daily Devotional';
+    };
 
-      {(item.content || (item.type === 'reading_plan' && item.data?.description)) && (
-        <Text style={[styles.itemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
-          {item.type === 'reading_plan'
-            ? getCleanPreview(item.data?.description)
-            : getCleanPreview(item.content)}
-        </Text>
-      )}
+    const getIcon = () => {
+      if (isCharacter) return 'person';
+      if (isStudy) return 'school';
+      if (isPlan) return 'calendar';
+      return 'book';
+    };
 
-      <View style={styles.itemFooter}>
-        <Text style={[styles.itemDate, { color: colors.textSecondary }]}>
-          {new Date(item.savedAt ?? item.date ?? Date.now()).toLocaleDateString()}
-        </Text>
-        {item.bibleVersion && (
-          <View style={[styles.versionBadge, { backgroundColor: colors.offWhite }]}>
-            <Text style={styles.versionText}>{item.bibleVersion}</Text>
+    const getTitle = () => {
+      if (isCharacter) return item.character || item.topic;
+      if (isPlan) return item.data?.title ?? '';
+      return item.topic;
+    };
+
+    const getPreview = () => {
+      if (isCharacter) return getCleanPreview(item.biblicalNarrative);
+      if (isPlan) return getCleanPreview(item.data?.description);
+      return getCleanPreview(item.content);
+    };
+
+    return (
+      <TouchableOpacity
+        style={[styles.itemCard, { backgroundColor: colors.surface }]}
+        onPress={() => {
+          store.storeDevotional(item);
+          if (item.type === 'reading_plan') {
+            router.push(`/reading-plan/${item.id}`);
+          } else {
+            router.push(`/devotional/${item.id}`);
+          }
+        }}
+      >
+        <View style={styles.itemHeader}>
+          <View style={styles.itemType}>
+            <Ionicons
+              name={getIcon() as any}
+              size={16}
+              color={COLORS.gold}
+            />
+            <Text style={styles.itemTypeText}>{getLabel()}</Text>
           </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+          <TouchableOpacity onPress={() => deleteItem(item.id)}>
+            <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.itemTopic, { color: colors.text }]}>{getTitle()}</Text>
+
+        <Text style={[styles.itemPreview, { color: colors.textSecondary }]} numberOfLines={2}>
+          {getPreview()}
+        </Text>
+
+        <View style={styles.itemFooter}>
+          <Text style={[styles.itemDate, { color: colors.textSecondary }]}>
+            {new Date(item.savedAt ?? item.date ?? Date.now()).toLocaleDateString()}
+          </Text>
+          {item.bibleVersion && (
+            <View style={[styles.versionBadge, { backgroundColor: colors.offWhite }]}>
+              <Text style={styles.versionText}>{item.bibleVersion}</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (savedItems.length === 0) {
     return (

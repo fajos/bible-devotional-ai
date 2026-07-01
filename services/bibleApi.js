@@ -44,6 +44,26 @@ const BIBLE_BOOKS_BY_ID = {
   66: 'Revelation'
 };
 
+// Yoruba Book Mapping for robust lookup
+const YORUBA_BOOK_MAP = {
+  'genesis': 'Gẹ́nẹ́sísì', 'exodus': 'Ékísódù', 'leviticus': 'Léfítíkù', 'numbers': 'Numeri', 'deuteronomy': 'Deuteronomi',
+  'joshua': 'Joṣua', 'judges': 'Àwọn Onídàájọ́', 'ruth': 'Rúùtù', '1 samuel': '1 Sámúẹ́lì', '2 samuel': '2 Sámúẹ́lì',
+  '1 kings': '1 Àwọn Ọba', '2 kings': '2 Àwọn Ọba', '1 chronicles': '1 Àwọn Kíróníkà', '2 chronicles': '2 Àwọn Kíróníkà',
+  'ezra': 'Ẹ́sírà', 'nehemiah': 'Nehemáyà', 'esther': 'Ẹ́sítà', 'job': 'Jóòbù', 'psalms': 'Sáàmù', 'psalm': 'Sáàmù',
+  'proverbs': 'Òwe', 'ecclesiastes': 'Oníwàásù', 'song of solomon': 'Orin Sólómọ́nì', 'isaiah': 'Aísáyà',
+  'jeremiah': 'Jeremáyà', 'lamentations': 'Ìdárò Jeremáyà', 'ezekiel': 'Ẹ́sékíẹ́lì', 'daniel': 'Dáníẹ́lì',
+  'hosea': 'Hósíà', 'joel': 'Jóẹ́lì', 'amos': 'Ámọ́sì', 'obadiah': 'Òbadáyà', 'jonah': 'Jónà',
+  'micah': 'Míkà', 'nahum': 'Náhúmù', 'habakkuk': 'Hábákúkù', 'zephaniah': 'Sẹfanáyà', 'haggai': 'Hágáì',
+  'zechariah': 'Sẹkaráyà', 'malachi': 'Málákì', 'matthew': 'Mátíù', 'matiu': 'Mátíù', 'mark': 'Máàkù', 'maaku': 'Máàkù',
+  'luke': 'Lúùkù', 'luku': 'Lúùkù', 'john': 'Jòhánù', 'johanu': 'Jòhánù', 'johannu': 'Jòhánù', 'acts': 'Àwọn Ìṣe',
+  'romans': 'Róòmù', '1 corinthians': '1 Kọ́ríńtì', '2 corinthians': '2 Kọ́ríńtì', 'galatians': 'Gálátíà',
+  'ephesians': 'Éfésù', 'philippians': 'Fílí́pì', 'colossians': 'Kólósè', '1 thessalonians': '1 Tẹsalóníkà',
+  '2 thessalonians': '2 Tẹsalóníkà', '1 timothy': '1 Tímótì', '2 timothy': '2 Tímótì', 'titus': 'Títù',
+  'philemon': 'Fílímọ́nì', 'hebrews': 'Hébérù', 'james': 'Jákọ́bù', '1 peter': '1 Pétérù', '2 peter': '2 Pétérù',
+  '1 john': '1 Jòhánù', '1 johannu': '1 Jòhánù', '2 john': '2 Jòhánù', '2 johannu': '2 Jòhánù', '3 john': '3 Jòhánù',
+  '3 johannu': '3 Jòhánù', 'jude': 'Júdà', 'revelation': 'Ìfihàn'
+};
+
 class BibleAPIService {
   constructor() {
     // bolls.life is keyless
@@ -580,10 +600,50 @@ class BibleAPIService {
 
           if (!data) return null;
 
-          const bookName = Object.keys(data).find(name =>
-            name.toLowerCase() === parsed.book.toLowerCase() ||
-            name.toLowerCase().includes(parsed.book.toLowerCase())
-          );
+          const bookSearch = parsed.book.toLowerCase().trim();
+
+          // 1. Try static Yoruba mapping first (most reliable for GH_YOR)
+          let mappedBook = YORUBA_BOOK_MAP[bookSearch];
+
+          // If not found, try to find by normalized English key (e.g. "1st samuel" -> "1 samuel")
+          if (!mappedBook) {
+              const cleanSearch = bookSearch.replace(/st|nd|rd|th/g, '').replace(/\s+/g, ' ');
+              mappedBook = YORUBA_BOOK_MAP[cleanSearch];
+          }
+
+          // Ultra-robust matching: normalize everything (remove accents/diacritics)
+          const normalize = (str) => {
+            if (!str) return '';
+            return str.normalize("NFD")
+               .replace(/[\u0300-\u036f]/g, "")
+               .toLowerCase()
+               .trim();
+          };
+
+          const normalizedBookSearch = normalize(bookSearch);
+
+          // Find the book name in the data keys
+          const availableBooks = Object.keys(data);
+          const bookName = mappedBook && data[mappedBook] ? mappedBook : availableBooks.find(name => {
+            const lowerName = name.toLowerCase().trim();
+            const normalizedName = normalize(lowerName);
+
+            // Try 1: Exact match or mapped match
+            if (lowerName === bookSearch || lowerName === mappedBook?.toLowerCase()) return true;
+
+            // Try 2: Normalized exact match (ignores accents)
+            if (normalizedName === normalizedBookSearch) return true;
+
+            // Try 3: Normalized partial match (e.g. "Maatiu" matches "Iwe Maatiu")
+            if (normalizedName.includes(normalizedBookSearch) || normalizedBookSearch.includes(normalizedName)) return true;
+
+            return false;
+          });
+
+          if (!bookName) {
+            console.log(`[YOR Fix] Could not find book "${bookSearch}" (${normalizedBookSearch}) in Yoruba Bible.`);
+            console.log(`[YOR Fix] Available books: ${availableBooks.slice(0, 5).join(', ')}...`);
+          }
 
           if (bookName && data[bookName] && data[bookName][parsed.chapter]) {
               const chapterData = data[bookName][parsed.chapter];
@@ -791,8 +851,9 @@ class BibleAPIService {
     if (!reference) return null;
     const cleanRef = reference.trim();
 
-    // Pattern: "John 3:16" or "1 John 1:9" or "Genesis 1:1-5"
-    const match = cleanRef.match(/^(\d?\s*[A-Za-z]+)\s+(\d+):(\d+)(?:-(\d+))?$/);
+    // Enhanced Pattern: Supports Unicode for non-English book names (e.g. Yoruba Gẹ́nẹ́sísì)
+    // Pattern: "John 3:16" or "1 John 1:9" or "Gẹ́nẹ́sísì 1:1"
+    const match = cleanRef.match(/^(\d?\s*[^\d\s\W]+(?:\s*[^\d\s\W]+)*)\s+(\d+):(\d+)(?:-(\d+))?$/u);
     if (match) {
       return {
         book: match[1].trim(),
@@ -803,7 +864,7 @@ class BibleAPIService {
     }
 
     // Pattern: "Psalm 23"
-    const chapterMatch = cleanRef.match(/^(\d?\s*[A-Za-z]+)\s+(\d+)$/);
+    const chapterMatch = cleanRef.match(/^(\d?\s*[^\d\s\W]+(?:\s*[^\d\s\W]+)*)\s+(\d+)$/u);
     if (chapterMatch) {
       return {
         book: chapterMatch[1].trim(),
