@@ -63,7 +63,7 @@ class BibleAPIService {
         id: versions[id],
         name: names[id],
         abbreviation: id,
-        language: { name: 'English' }
+        language: { name: (id === 'YOR' || id === 'GH_YOR') ? 'Yoruba' : 'English' }
       }));
 
       await store.setCachedData(cacheKey, bibles);
@@ -757,7 +757,26 @@ class BibleAPIService {
           const response = await fetch(url);
           if (!response.ok) return null;
 
-          const data = await response.json();
+          let data = await response.json();
+          if (!data) return null;
+
+          // Normalize Yoruba structure (Array of {bookName, details: Verse[]}) to standard structure
+          if (Array.isArray(data) && data.length > 0 && data[0].details) {
+              console.log("Normalizing Yoruba Bible structure...");
+              const normalized = {};
+              data.forEach(book => {
+                  const bookName = book.bookName;
+                  normalized[bookName] = {};
+                  book.details.forEach(v => {
+                      if (!normalized[bookName][v.chapter]) {
+                          normalized[bookName][v.chapter] = {};
+                      }
+                      normalized[bookName][v.chapter][v.verse] = v.text;
+                  });
+              });
+              data = normalized;
+          }
+
           if (data) {
               await store.setCachedData(cacheKey, data);
           }

@@ -144,6 +144,7 @@ export default function PrayerJournalScreen() {
       const version = await store.getPreferredBibleVersion();
       const prayer = await openaiService.generatePrayer(newPrayer, version);
       setNewPrayer(prayer);
+      setPreferredVersion(version); // Update state to ensure Yoruba previews work
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Prayer inspiration error:', error);
@@ -174,51 +175,59 @@ export default function PrayerJournalScreen() {
     ]);
   };
 
-  const renderItem = ({ item }: { item: Prayer }) => (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: colors.surface }, item.isAnswered && [styles.answeredCard, { backgroundColor: isDarkMode ? colors.primaryDark : '#F1F8E9' }]]}
-      onPress={() => {
-        setSelectedPrayer(item);
-        setDetailVisible(true);
-      }}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={[styles.date, { color: colors.textSecondary }]}>{new Date(item.date).toLocaleDateString()}</Text>
-        <TouchableOpacity onPress={() => deletePrayer(item.id)}>
-          <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-      <Text
-        style={[styles.prayerText, { color: colors.text }, item.isAnswered && styles.strikeText]}
-        numberOfLines={4}
-        ellipsizeMode="tail"
+  const renderItem = ({ item }: { item: Prayer }) => {
+    const prayerDate = new Date(item.date);
+    const dateStr = prayerDate.toLocaleDateString();
+    const timeStr = prayerDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    return (
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: colors.surface }, item.isAnswered && [styles.answeredCard, { backgroundColor: isDarkMode ? colors.primaryDark : '#F1F8E9' }]]}
+        onPress={() => {
+          setSelectedPrayer(item);
+          setDetailVisible(true);
+        }}
+        activeOpacity={0.7}
       >
-        {item.text}
-      </Text>
-
-      <View style={[styles.cardFooter, { borderTopColor: colors.offWhite }]}>
-        <TouchableOpacity
-          style={[styles.answeredButton, item.isAnswered && styles.answeredButtonActive]}
-          onPress={() => toggleAnswered(item.id)}
-        >
-          <Ionicons
-            name={item.isAnswered ? "checkmark-circle" : "radio-button-off"}
-            size={20}
-            color={item.isAnswered ? COLORS.white : COLORS.gold}
-          />
-          <Text style={[styles.answeredButtonText, item.isAnswered && styles.answeredButtonTextActive]}>
-            {item.isAnswered ? 'Answered' : 'Answered?'}
+        <View style={styles.cardHeader}>
+          <Text style={[styles.date, { color: colors.textSecondary }]}>
+            {dateStr} • {timeStr}
           </Text>
-        </TouchableOpacity>
-
-        <View style={styles.viewDetailsRow}>
-          <Text style={styles.viewDetailsText}>View Details</Text>
-          <Ionicons name="chevron-forward" size={14} color={COLORS.gold} />
+          <TouchableOpacity onPress={() => deletePrayer(item.id)}>
+            <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+        <Text
+          style={[styles.prayerText, { color: colors.text }, item.isAnswered && styles.strikeText]}
+          numberOfLines={4}
+          ellipsizeMode="tail"
+        >
+          {item.text}
+        </Text>
+
+        <View style={[styles.cardFooter, { borderTopColor: colors.offWhite }]}>
+          <TouchableOpacity
+            style={[styles.answeredButton, item.isAnswered && styles.answeredButtonActive]}
+            onPress={() => toggleAnswered(item.id)}
+          >
+            <Ionicons
+              name={item.isAnswered ? "checkmark-circle" : "radio-button-off"}
+              size={20}
+              color={item.isAnswered ? COLORS.white : COLORS.gold}
+            />
+            <Text style={[styles.answeredButtonText, item.isAnswered && styles.answeredButtonTextActive]}>
+              {item.isAnswered ? 'Answered' : 'Answered?'}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.viewDetailsRow}>
+            <Text style={styles.viewDetailsText}>View Details</Text>
+            <Ionicons name="chevron-forward" size={14} color={COLORS.gold} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -298,7 +307,7 @@ export default function PrayerJournalScreen() {
           <View style={[styles.modalContent, { backgroundColor: colors.surface, maxHeight: '80%' }]}>
             <View style={styles.modalHeaderRow}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>
-                {selectedPrayer ? new Date(selectedPrayer.date).toLocaleDateString() : 'Prayer'}
+                {selectedPrayer ? `${new Date(selectedPrayer.date).toLocaleDateString()} • ${new Date(selectedPrayer.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Prayer'}
               </Text>
               <TouchableOpacity onPress={() => setDetailVisible(false)}>
                 <Ionicons name="close" size={24} color={colors.textSecondary} />

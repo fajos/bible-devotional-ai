@@ -63,6 +63,7 @@ export const API_CONFIG = {
       WNT: 'GH_WNT',
       WORNT: 'GH_WORNT',
       WOSNT: 'GH_WOSNT',
+      YOR: 'GH_YOR',
     },
     
     versionNames: {
@@ -118,6 +119,7 @@ export const API_CONFIG = {
       'CEV': 'Contemporary English Version',
       'NAB': 'New American Bible',
       'NRSV': 'New Revised Standard Version',
+      'YOR': 'Bibeli Mimọ (Yoruba)',
     },
 
     GITHUB_API: {
@@ -167,6 +169,7 @@ export const API_CONFIG = {
         'GH_WORNT': 'WORRELL NEW TESTAMENT.json',
         'GH_WOSNT': 'WORSLEY NEW TESTAMENT.json',
         'GH_YLT': "YOUNG'S LITERAL TRANSLATION.json",
+        'GH_YOR': 'BIBELI MIMO (YORUBA).json',
       }
     },
 

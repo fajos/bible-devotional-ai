@@ -299,6 +299,7 @@ export default function SettingsScreen() {
     { id: 'KJV', name: 'KJV' },
     { id: 'AMP', name: 'AMP' },
     { id: 'MSG', name: 'MSG' },
+    { id: 'YOR', name: 'YOR' },
   ];
 
   if (loading) return null;

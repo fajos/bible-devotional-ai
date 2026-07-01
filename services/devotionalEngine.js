@@ -735,7 +735,15 @@ const parseCharacterSpotlightResponse = (aiContent, bibleVersion) => {
       // Improved reference cleaning: remove header, brackets, and any trailing non-reference text
       let ref = cleanLine.replace(/^KEY_VERSE:?\s*/i, '').replace(/^KEY VERSE:?\s*/i, '').trim();
       ref = ref.replace(/[\[\]]/g, '').trim(); // Remove brackets if AI adds them
-      sections.keyVerse.reference = ref;
+
+      // Safety check: sometimes the AI dumps the text here too if it fails formatting
+      // Reference pattern: "John 3:16" or "Genesis 1:1"
+      const refMatch = ref.match(/^([1-3]\s+)?[A-Z][a-z]+\s+\d+:\d+(-\d+)?/i);
+      if (refMatch) {
+          sections.keyVerse.reference = refMatch[0].trim();
+      } else {
+          sections.keyVerse.reference = ref;
+      }
     } else if (upper.startsWith('BIBLICALNARRATIVE')) {
       currentSection = 'biblicalNarrative';
     } else if (upper.startsWith('STRENGTHSANDVIRTUES')) {

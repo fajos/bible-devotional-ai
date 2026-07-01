@@ -210,13 +210,29 @@ const repairMalformedData = (data: Devotional): Devotional => {
       .trim();
   };
 
+  // Improved reference extraction for Key Verse
+  let cleanReference = clean(data.keyVerse?.reference) || '';
+  let cleanText = data.keyVerse?.text || '';
+
+  // If the reference contains too much text (more than a standard ref),
+  // it might have the verse body dumped into it.
+  if (cleanReference.length > 50 && !cleanText) {
+    const refMatch = cleanReference.match(/^([1-3]\s+)?[A-Z][a-z]+\s+\d+:\d+(-\d+)?/i);
+    if (refMatch) {
+      const extractedRef = refMatch[0];
+      cleanText = cleanReference.substring(extractedRef.length).replace(/^[:\s\-]+/, '').trim();
+      cleanReference = extractedRef;
+    }
+  }
+
   return {
     ...data,
     topic: clean(data.topic),
     character: clean(data.character),
     keyVerse: data.keyVerse ? {
       ...data.keyVerse,
-      reference: clean(data.keyVerse.reference) || ''
+      reference: cleanReference,
+      text: cleanText
     } : data.keyVerse
   };
 };
@@ -757,7 +773,27 @@ return (
           {devotional.strengthsAndVirtues.map((item, index) => (
             <View key={index} style={styles.listItem}>
               <Ionicons name="checkmark-circle" size={16} color={COLORS.gold} style={{ marginTop: 2 }} />
-              <Text style={[styles.listItemText, { color: colors.text }]}>{item}</Text>
+              <Text style={[styles.listItemText, { color: colors.text }]}>
+                {wrapScriptures(item).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                  if (part.startsWith('[[') && part.endsWith(']]')) {
+                    const ref = part.slice(2, -2);
+                    return (
+                      <Text
+                        key={i}
+                        style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                        onPress={() => {
+                          setPreviewReference(ref);
+                          setPreviewVisible(true);
+                          Haptics.selectionAsync();
+                        }}
+                      >
+                        {ref}
+                      </Text>
+                    );
+                  }
+                  return part;
+                })}
+              </Text>
             </View>
           ))}
         </View>
@@ -774,7 +810,27 @@ return (
           {devotional.failuresAndLessons.map((item, index) => (
             <View key={index} style={styles.listItem}>
               <Ionicons name="information-circle" size={16} color={COLORS.goldDark} style={{ marginTop: 2 }} />
-              <Text style={[styles.listItemText, { color: colors.text }]}>{item}</Text>
+              <Text style={[styles.listItemText, { color: colors.text }]}>
+                {wrapScriptures(item).split(/(\[\[.*?\]\])/g).map((part, i) => {
+                  if (part.startsWith('[[') && part.endsWith(']]')) {
+                    const ref = part.slice(2, -2);
+                    return (
+                      <Text
+                        key={i}
+                        style={{ color: COLORS.goldDark, fontWeight: 'bold', textDecorationLine: 'underline' }}
+                        onPress={() => {
+                          setPreviewReference(ref);
+                          setPreviewVisible(true);
+                          Haptics.selectionAsync();
+                        }}
+                      >
+                        {ref}
+                      </Text>
+                    );
+                  }
+                  return part;
+                })}
+              </Text>
             </View>
           ))}
         </View>

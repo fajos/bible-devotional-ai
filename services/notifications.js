@@ -157,13 +157,16 @@ export async function scheduleVOTDReminders(hour, minute) {
     const identifier = await Notifications.scheduleNotificationAsync({
       content: {
         title: `Verse of the Day: ${votd.reference}`,
-        body: votd.reflection,
+        body: (votd.text || '').replace(/^["']|["']$/g, '').trim(),
         data: {
           type: REMINDER_TYPES.VOTD,
           date: scheduledDate.toDateString()
         },
       },
-      trigger: scheduledDate,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: scheduledDate,
+      },
     });
     identifiers.push(identifier);
   }
@@ -203,7 +206,9 @@ export async function getReminderSettings() {
 export default {
   requestPermissions,
   scheduleDailyReminder,
+  scheduleVOTDReminders,
   cancelReminder,
   getReminderSettings,
+  refreshNotifications,
   REMINDER_TYPES,
 };

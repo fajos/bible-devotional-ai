@@ -8,6 +8,13 @@ class OpenAIService {
     this.apiKey = API_CONFIG.OPENAI.apiKey;
   }
 
+  getLanguageInstruction(bibleVersion) {
+    if (bibleVersion === 'GH_YOR' || bibleVersion === 'YOR' || bibleVersion === 'Bibeli Mimọ (Yoruba)') {
+      return "\n\nIMPORTANT: The user is using a Yoruba Bible. You MUST provide all reflections, content, applications, prayers, and insights in the Yoruba language. Ensure the tone is scholarly yet spiritually vibrant in Yoruba.";
+    }
+    return "";
+  }
+
   async generateContent(prompt, systemPrompt = '') {
     try {
       // Determine if this is a simple validation request
@@ -89,7 +96,7 @@ class OpenAIService {
     const day = Math.floor(diff / oneDay);
     const themeSeed = themes[day % themes.length];
 
-    const prompt = `Create a deep, scholarly daily devotional for ${today} using the ${bibleVersion} Bible version.
+    const prompt = `Create a deep, scholarly daily devotional for ${today} using the ${bibleVersion} Bible version.${this.getLanguageInstruction(bibleVersion)}
 
     FOCUS THEME: ${themeSeed}
     (Ensure the devotional explores this theme deeply using relevant scriptures, but do not use "Focus Theme" as a header in your response).
@@ -139,7 +146,7 @@ class OpenAIService {
   }
 
   async generateBibleStudy(topic, bibleVersion = 'NKJV') {
-    const prompt = `Create an exhaustive, deep-dive Bible study on "${topic}" using the ${bibleVersion} Bible.
+    const prompt = `Create an exhaustive, deep-dive Bible study on "${topic}" using the ${bibleVersion} Bible.${this.getLanguageInstruction(bibleVersion)}
 
     If the topic refers to a person and there are multiple individuals with that name in the Bible, focus on the most prominent one(s) and mention others briefly if relevant.
 
@@ -187,7 +194,7 @@ class OpenAIService {
   }
 
   async generateReadingPlan(topic, durationDays = 7, bibleVersion = 'NKJV') {
-    const prompt = `Create an exhaustive, deep-dive ${durationDays}-day Bible reading plan on the topic: "${topic}" using the ${bibleVersion} Bible.
+    const prompt = `Create an exhaustive, deep-dive ${durationDays}-day Bible reading plan on the topic: "${topic}" using the ${bibleVersion} Bible.${this.getLanguageInstruction(bibleVersion)}
 
     IMPORTANT: If the topic "${topic}" is a book of the Bible (like "Ephesians", "Romans", etc.), the plan must act as a scholarly commentary and exposition of that book, progressing logically through its chapters and major theological themes.
 
@@ -234,12 +241,12 @@ class OpenAIService {
   }
 
   async generateVerseOfTheDayBatch(count = 7, bibleVersion = 'NKJV') {
-    const prompt = `Generate ${count} unique "Verse of the Day" entries.
+    const prompt = `Generate ${count} unique "Verse of the Day" entries.${this.getLanguageInstruction(bibleVersion)}
     Each entry must include:
     1. A central Bible verse reference (from ${bibleVersion} version).
     2. The full text of that verse.
-    3. A short, profound reflection (max 150 characters).
-    4. A short spiritual challenge or action step (max 100 characters).
+    3. A profound reflection (at least 2-3 substantial sentences, exploring the heart of the verse).
+    4. A transformative spiritual challenge (an actionable, impactful step that requires real thought or effort).
 
     Ensure a diverse range of themes (Grace, Wisdom, Courage, Love, etc.).
     Respond ONLY with a JSON array of objects.
@@ -250,56 +257,61 @@ class OpenAIService {
       {
         "reference": "John 3:16",
         "text": "For God so loved the world...",
-        "reflection": "A reminder of God's infinite love for us.",
-        "challenge": "Share God's love with someone today through a kind act."
+        "reflection": "[Profound 2-3 sentence reflection]",
+        "challenge": "[Multi-faceted or challenging action step]"
       }
     ]`;
 
     const response = await this.generateContent(prompt, "You are a pastoral theologian who provides concise, powerful daily spiritual insights. Respond only with valid JSON. Never leave the JSON incomplete. Do not include markdown code blocks like ```json.");
 
     try {
-      // Step 1: Clean the response of common AI "noise"
-      let cleanedResponse = response.trim();
+      // Step 1: Find the boundaries of the JSON array
+      const firstBracket = response.indexOf('[');
+      let lastBracket = response.lastIndexOf(']');
 
-      // Remove markdown code blocks if present
-      cleanedResponse = cleanedResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-
-      // Step 2: Extract the JSON array using a robust regex
-      const jsonMatch = cleanedResponse.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        throw new Error("No JSON array found in response");
+      // If we don't even have an opening bracket, something is very wrong
+      if (firstBracket === -1) {
+         throw new Error("No JSON array start found");
       }
 
-      let jsonString = jsonMatch[0];
+      let jsonString;
 
-      // Step 3: Self-healing for truncated JSON
-      if (!jsonString.endsWith(']')) {
-        console.warn("Detected truncated JSON, attempting to fix...");
+      // Check if the JSON is likely truncated (last bracket is missing or too early)
+      const isPossiblyTruncated = lastBracket === -1 || lastBracket < firstBracket;
 
-        // Find the last complete object
+      if (isPossiblyTruncated) {
+        console.warn("VOTD JSON appears truncated, attempting advanced recovery...");
+        // Use everything from the first bracket onwards
+        jsonString = response.substring(firstBracket);
+
+        // Find the last complete object ending '}'
         const lastCompleteObject = jsonString.lastIndexOf('}');
         if (lastCompleteObject !== -1) {
+          // Slice at the end of the last complete object and close the array
           jsonString = jsonString.substring(0, lastCompleteObject + 1) + ']';
         } else {
-          // If no complete object, try to at least close the array
-          jsonString += ']';
+          // If not even one object is complete, we can't recover
+          throw new Error("Truncation too severe for recovery");
         }
+      } else {
+        // Normal extraction
+        jsonString = response.substring(firstBracket, lastBracket + 1);
       }
 
-      // Step 4: Final validation - remove any stray control characters or invalid whitespace
-      // (Common in some AI responses)
+      // Step 2: Remove control characters and validate
       jsonString = jsonString.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
       return JSON.parse(jsonString);
     } catch (error) {
       console.error("Failed to parse VOTD batch JSON:", error);
-      console.log("Raw response snippet:", response.substring(0, 200) + "...");
+      console.log("Error Detail:", error.message);
+      console.log("Raw response length:", response.length);
       throw new Error("Could not generate Verse of the Day batch.");
     }
   }
 
   async generateCharacterSpotlight(bibleVersion = 'NKJV') {
-    const prompt = `Create a deep, scholarly weekly "Bible Character Spotlight" using the ${bibleVersion} Bible version.
+    const prompt = `Create a deep, scholarly weekly "Bible Character Spotlight" using the ${bibleVersion} Bible version.${this.getLanguageInstruction(bibleVersion)}
 
     The spotlight should focus on a prominent or deeply significant biblical figure.
 
@@ -334,7 +346,7 @@ class OpenAIService {
   }
 
   async generatePrayer(request, bibleVersion = 'NKJV') {
-    const prompt = `Task: Craft a deep, scripturally-rooted, and beautifully written prayer based on the following concern or request.
+    const prompt = `Task: Craft a deep, scripturally-rooted, and beautifully written prayer based on the following concern or request.${this.getLanguageInstruction(bibleVersion)}
 
     REQUEST: "${request}"
     BIBLE VERSION: ${bibleVersion}
@@ -356,7 +368,7 @@ class OpenAIService {
   }
 
   async explainVerse(verseText, reference, bibleVersion = 'NKJV') {
-    const prompt = `Provide a deep, scholarly contextual explanation for the following verse(s) from the ${bibleVersion} translation:
+    const prompt = `Provide a deep, scholarly contextual explanation for the following verse(s) from the ${bibleVersion} translation:${this.getLanguageInstruction(bibleVersion)}
 
     Reference: ${reference}
     Text: "${verseText}"
